@@ -1,6 +1,6 @@
 # iTIC Probe Viewer
 
-タイの車両プローブデータ（[iTIC](https://www.iticfoundation.org/) 公開）を、ブラウザ上で軽快に眺めるためのビューアです。1日あたり 180 万点超の GPS ログを 60 fps で描画します。
+タイの車両プローブデータ（[iTIC](https://www.iticfoundation.org/) 公開．[公式オープンデータページ](https://iticfoundation.org/en/open-data-sharing/)）を、ブラウザ上で軽快に眺めるためのビューアです。1日あたり 180 万点超の GPS ログを 60 fps で描画します。
 
 開発中のプロトタイプです．
 
