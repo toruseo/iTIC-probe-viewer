@@ -1,19 +1,20 @@
 # iTIC Probe Viewer
 
-タイの車両プローブデータ（[iTIC](https://www.iticfoundation.org/) 公開．[公式オープンデータページ](https://iticfoundation.org/en/open-data-sharing/)）を、ブラウザ上で軽快に眺めるためのビューアです。1日あたり 180 万点超の GPS ログを 60 fps で描画します。
+タイのプローブカーデータ（[iTIC](https://www.iticfoundation.org/) 提供[オープンデータ](https://iticfoundation.org/en/open-data-sharing/)）を、ブラウザ上で軽快に眺めるためのビューアです．
 
 開発中のプロトタイプです．
 
 ## デモ
 
-**🌐 Live demo**: https://toruseo.jp/iTIC-probe-viewer/
-
-サンプル日が同梱されています。日付セレクタからすぐ可視化が始まります。
-
+https://toruseo.jp/iTIC-probe-viewer/
 
 <p float="left">
-<img width="400" alt="image2" src="https://github.com/user-attachments/assets/540b592a-7b4f-4e41-b225-e8a075679730" />
-<img width="400" alt="image1" src="https://github.com/user-attachments/assets/2bce0e44-30ef-47f6-ace0-884c124fbb49" />
+   <img width="400" alt="dot data" src="https://github.com/user-attachments/assets/f0f9edb3-8a5d-443f-938c-1bd921379c69" />
+   <img width="400" alt="average speed heatmap" src="https://github.com/user-attachments/assets/9cb85f72-d91c-4be5-b28d-324647a8b1c8" />
+</p>
+<p float="left">
+   <img width="400" alt="individual trajecotry" src="https://github.com/user-attachments/assets/02d09ef3-5a62-4baa-b107-9c0f9b5066f8" />
+   <img width="400" alt="area time-series and MFD" src="https://github.com/user-attachments/assets/a4c88c69-9214-48b1-9132-fc960eba0f11" />
 </p>
 
 ## 操作
