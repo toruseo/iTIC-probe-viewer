@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>iTIC Probe Viewer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <header id="topbar">
+      <div class="brand">iTIC Probe Viewer</div>
+      <div id="status" class="status">loading…</div>
+    </header>
+
+    <aside id="panel">
+      <section class="panel-section">
+        <h3>Day</h3>
+        <select id="day-select"></select>
+        <div class="hint" id="day-hint"></div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Time window</h3>
+        <div id="time-label" class="muted time-label"></div>
+        <div class="row time-mode">
+          <label><input type="radio" name="time-mode" value="range" checked> start–end</label>
+          <label><input type="radio" name="time-mode" value="window"> start + width</label>
+        </div>
+        <div class="time-slider">
+          <div class="slider-row">
+            <span class="slider-tag">start</span>
+            <input id="time-start" type="range" min="0" max="86399" value="0" step="1" />
+          </div>
+          <div class="slider-row">
+            <span class="slider-tag" id="slider2-tag">end</span>
+            <input id="time-end" type="range" min="0" max="86399" value="86399" step="1" />
+          </div>
+        </div>
+        <div class="row" id="width-presets">
+          <span class="muted">width:</span>
+          <button data-w="600">10m</button>
+          <button data-w="1800">30m</button>
+          <button data-w="3600">1h</button>
+          <button data-w="10800">3h</button>
+        </div>
+        <div class="row">
+          <button id="play">▶ Play</button>
+          <label class="muted">speed
+            <select id="play-speed">
+              <option value="60">60x</option>
+              <option value="300">300x</option>
+              <option value="900">900x</option>
+              <option value="3600" selected>3600x</option>
+              <option value="10000">10000x</option>
+              <option value="30000">30000x</option>
+              <option value="86400">1day/s</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Layers</h3>
+        <label><input type="checkbox" id="lyr-points" checked> Points</label>
+        <label><input type="checkbox" id="lyr-heatmap"> Heatmap</label>
+        <label><input type="checkbox" id="lyr-hexagon"> Hexagon (3D)</label>
+        <label><input type="checkbox" id="lyr-trips" checked> Selected vehicle trip</label>
+      </section>
+
+      <section class="panel-section">
+        <h3>Color by</h3>
+        <select id="color-by">
+          <option value="speed">Speed</option>
+          <option value="heading">Heading</option>
+          <option value="forhire">For-hire light</option>
+          <option value="engine">Engine ACC</option>
+        </select>
+        <div class="row">
+          <label class="muted">point size
+            <input id="point-size" type="range" min="1" max="20" value="3" step="0.5">
+          </label>
+        </div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Filter</h3>
+        <label><input type="checkbox" id="f-gps" checked> only GPS valid</label>
+        <label><input type="checkbox" id="f-moving" checked> only speed &gt; 0</label>
+        <div class="row">
+          <label class="muted">speed ≤
+            <input id="f-speed-max" type="range" min="0" max="200" value="200" step="5">
+            <span id="f-speed-max-v">200</span> km/h
+          </label>
+        </div>
+      </section>
+
+      <section class="panel-section" id="vehicle-section">
+        <h3>Selected vehicle</h3>
+        <div id="vehicle-info" class="muted">Click a point to select.</div>
+      </section>
+
+      <section class="panel-section">
+        <h3>Stats</h3>
+        <div id="stats" class="muted"></div>
+      </section>
+    </aside>
+
+    <div id="legend"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

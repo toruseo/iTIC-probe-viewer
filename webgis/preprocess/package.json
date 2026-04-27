@@ -1,0 +1,9 @@
+{
+  "name": "itic-probe-preprocess",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node preprocess.mjs"
+  }
+}

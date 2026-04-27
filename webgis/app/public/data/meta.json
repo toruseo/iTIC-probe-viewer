@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-04-27T04:06:09.625Z",
+  "record_size": 20,
+  "header_size": 64,
+  "timezone_offset_hours": 7,
+  "days": [
+    {
+      "date": 20250101,
+      "count": 1863115,
+      "skipped": 555,
+      "line_count": 1863670,
+      "t_min": 1735529474,
+      "t_max": 1735750796,
+      "bbox": [
+        98.18023,
+        4.57985,
+        105.57638,
+        20.18425
+      ],
+      "file": "20250101.bin",
+      "elapsed_ms": 1610
+    }
+  ],
+  "vehicle_count": 3364
+}
