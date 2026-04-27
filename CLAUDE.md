@@ -76,12 +76,30 @@ many days, plan for ~15–20 min per day or pre-extract the archive once
   `package-lock.json`.
 - The repo ships a small set of preprocessed days
   (`webgis/app/public/data/{YYYYMMDD}.bin` + `meta.json` + `vehicles.json`,
-  ~36 MB per day) so the deployed demo has something to render. The bundled
+  ~36–44 MB per day) so the deployed demo has something to render. The bundled
   set is whatever `DEFAULT_DATES` in `preprocess.mjs` produces — currently
   `20250101` and `20250201`. Add more days by editing `DEFAULT_DATES` (or
   running with `DATES=...`) and committing the resulting `.bin` + updated
-  sidecars. Fine up to a few hundred MB; beyond that, host data elsewhere
-  and add a URL-based loader.
+  sidecars.
+- **GitHub Pages hard/soft limits** (from
+  [docs.github.com/en/pages/.../github-pages-limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
+  and [actions/upload-pages-artifact](https://github.com/actions/upload-pages-artifact)):
+  - Published site: **1 GB** ("Published GitHub Pages sites may be no larger than 1 GB" — stated as
+    a flat cap, not "soft"). Source repo: 1 GB *recommended*.
+  - `upload-pages-artifact`: **1 GB officially supported**, **10 GB unofficial absolute max**
+    ("Pages will not even attempt to deploy" beyond that).
+  - Per-file push limit: **100 MiB hard block** (50 MiB warning, 25 MiB browser-upload).
+    A single day's `.bin` is ~36–44 MB so this isn't the binding constraint here, but
+    aggregate size is.
+  - Bandwidth: 100 GB/month *soft*. Build cadence: 10/hour *soft*. Deploy timeout: 10 min hard.
+  - **Git LFS is not resolved by Pages** ("Git LFS cannot be used with GitHub Pages sites"),
+    so LFS is not a workaround for the 1 GB cap.
+- **Practical bundling budget**: with ~40 MB/day average, the 1 GB site cap allows
+  roughly **~25 days** of bundled binaries before either the site cap or the artifact
+  cap bites. The current loader (`webgis/app/src/binary.js#loadDay`) only fetches
+  from `data/{date}.bin` relative to the deployed site — there is no off-Pages
+  hosting path in the code today. Bundling more days requires either staying under
+  the cap or extending the loader.
 - Source archives (`PROBE_DATA_iTIC/PROBE-YYYYMM.tar.bz2`) are **gitignored**
   by intent — they're large and only needed to regenerate the bundled binaries.
 - The build output is `webgis/app/dist/` which is gitignored — only the source

@@ -123,6 +123,19 @@ html, body {
 #vehicle-info { font-variant-numeric: tabular-nums; }
 #vehicle-info code { background: #1e2533; padding: 2px 4px; border-radius: 3px; word-break: break-all; }
 
+.poly-chart { margin-top: 8px; }
+.poly-chart-label { font-size: 10px; color: var(--muted); margin-bottom: 2px; letter-spacing: 0.04em; }
+.poly-chart canvas { width: 100%; height: 70px; display: block; border-radius: 3px; }
+.poly-chart-mfd canvas { height: 150px; }
+.mfd-time-bar {
+  height: 6px; border-radius: 2px; margin-top: 4px;
+  background: linear-gradient(90deg, hsl(240,70%,55%), hsl(180,70%,55%), hsl(120,70%,50%), hsl(60,80%,55%), hsl(0,80%,55%));
+}
+.mfd-time-bar-row { display: flex; justify-content: space-between; font-size: 9px; color: var(--muted); margin-top: 1px; font-variant-numeric: tabular-nums; }
+#poly-summary { margin-top: 6px; font-variant-numeric: tabular-nums; font-size: 11px; }
+#polygon-section.drawing { box-shadow: inset 0 0 0 1px var(--accent-2); }
+body.poly-drawing #map { cursor: crosshair; }
+
 #stats { font-variant-numeric: tabular-nums; white-space: pre-line; }
 
 #legend {

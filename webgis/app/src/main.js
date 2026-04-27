@@ -4,6 +4,8 @@ import { MapboxOverlay } from '@deck.gl/mapbox';
 import { fetchMeta, loadDay, buildColors, extractVehiclePath } from './binary.js';
 import { buildLayers, buildFilterValues } from './layers.js';
 import { setupControls } from './controls.js';
+import { aggregateInPolygon } from './polygon.js';
+import { drawTimeSeries, drawScatter } from './chart.js';
 
 const BASEMAP_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
@@ -28,6 +30,12 @@ const state = {
   selectedVehiclePath: null,
   playing: false,
   playSpeed: 300,
+  polygon: {
+    mode: 'idle',     // 'idle' | 'drawing'
+    draftRing: [],    // [[lon,lat], ...] while drawing
+    ring: null,       // [[lon,lat], ...] once finished
+    series: null,     // { binSec, nBins, count, avgSpeed }
+  },
 };
 
 // ---------- Status helpers ----------
@@ -69,6 +77,10 @@ function onHover(info) {
   if (!hoverPopup) {
     hoverPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, className: 'hover-popup' });
   }
+  if (state.polygon.mode === 'drawing') {
+    if (hoverPopup) hoverPopup.remove();
+    return;
+  }
   if (info && info.layer && info.layer.id === 'points' && info.index >= 0 && state.day) {
     const i = info.index;
     const u8 = state.day.u8View;
@@ -90,6 +102,7 @@ function onHover(info) {
 }
 
 function onPick(info) {
+  if (state.polygon.mode === 'drawing') return; // map click handler adds vertices
   if (!state.day) return;
   if (!(info && info.layer && info.layer.id === 'points' && info.index >= 0)) return;
   const i = info.index;
@@ -143,10 +156,12 @@ function render() {
     colors: state.colors,
     filterValues: state.filterValues,
     selectedVehiclePath: state.selectedVehiclePath,
+    polygon: state.polygon,
   });
   overlay.setProps({ layers });
   updateStats();
   updateLegend();
+  drawPolygonCharts();
 }
 
 function updateStats() {
@@ -189,6 +204,125 @@ function updateLegend() {
   el.innerHTML = html;
 }
 
+// ---------- Polygon ROI ----------
+function recomputePolygonSeries() {
+  if (!state.day || !state.filterValues) { state.polygon.series = null; return; }
+  state.polygon.series = state.polygon.ring
+    ? aggregateInPolygon(state.day, state.polygon.ring, state.filterValues, 600)
+    : null;
+}
+
+function drawPolygonCharts() {
+  const cnv1 = document.getElementById('poly-chart-count');
+  const cnv2 = document.getElementById('poly-chart-speed');
+  const cnv3 = document.getElementById('poly-chart-mfd');
+  const sumEl = document.getElementById('poly-summary');
+  const s = state.polygon.series;
+  if (!s || !state.day) {
+    [cnv1, cnv2, cnv3].forEach((c) => c.getContext('2d').clearRect(0, 0, c.width, c.height));
+    sumEl.textContent = '';
+    return;
+  }
+  const tMin = state.day.tMin;
+  const highlight = { tStart: state.ui.tStartUnix, tEnd: state.ui.tEndUnix };
+  drawTimeSeries(cnv1, s.count, {
+    binSec: s.binSec, tMin, color: '#4ea3ff', fill: true,
+    yMin: 0, highlight,
+  });
+  drawTimeSeries(cnv2, s.avgSpeed, {
+    binSec: s.binSec, tMin, color: '#ffb84e',
+    yMin: 0, yMax: state.ui.speedMax, highlight,
+  });
+
+  // MFD: x = count[b], y = count[b] * avgSpeed[b], one point per bin.
+  // Empty bins (count=0 or NaN avg speed) are dropped via NaN.
+  const xs = new Float32Array(s.nBins);
+  const ys = new Float32Array(s.nBins);
+  for (let b = 0; b < s.nBins; b++) {
+    const c = s.count[b], v = s.avgSpeed[b];
+    if (c === 0 || !Number.isFinite(v)) { xs[b] = NaN; ys[b] = NaN; }
+    else { xs[b] = c; ys[b] = c * v; }
+  }
+  drawScatter(cnv3, xs, ys, {
+    xLabel: 'count / 10min',
+    yLabel: 'count × km/h',
+    pointSize: 2.5,
+    colorFn: (i) => `hsl(${(1 - i / Math.max(1, s.nBins - 1)) * 240}, 75%, 55%)`,
+  });
+
+  let totalCnt = 0, weightedSpSum = 0;
+  for (let i = 0; i < s.count.length; i++) {
+    totalCnt += s.count[i];
+    if (Number.isFinite(s.avgSpeed[i])) weightedSpSum += s.avgSpeed[i] * s.count[i];
+  }
+  const dailyAvg = totalCnt > 0 ? weightedSpSum / totalCnt : NaN;
+  sumEl.textContent =
+    `${totalCnt.toLocaleString()} pts in polygon · daily avg ${Number.isFinite(dailyAvg) ? dailyAvg.toFixed(1) + ' km/h' : '—'}`;
+}
+
+function setupPolygonControls() {
+  const drawBtn = document.getElementById('poly-draw');
+  const finishBtn = document.getElementById('poly-finish');
+  const clearBtn = document.getElementById('poly-clear');
+  const hintEl = document.getElementById('poly-hint');
+  const sectionEl = document.getElementById('polygon-section');
+
+  const sync = () => {
+    const pm = state.polygon.mode;
+    const len = state.polygon.draftRing.length;
+    drawBtn.disabled   = (pm === 'drawing');
+    finishBtn.disabled = !(pm === 'drawing' && len >= 3);
+    clearBtn.disabled  = !(pm === 'drawing' || state.polygon.ring);
+    sectionEl.classList.toggle('drawing', pm === 'drawing');
+    document.body.classList.toggle('poly-drawing', pm === 'drawing');
+    hintEl.textContent =
+      pm === 'drawing'
+        ? `Drawing… ${len} vertex${len === 1 ? '' : 'es'} placed (need ≥3, then Finish).`
+        : state.polygon.ring
+          ? 'Polygon active. Charts show count + avg speed per 10 min (full day).'
+          : 'Click "Draw polygon", then click on the map to add vertices.';
+  };
+
+  const finish = () => {
+    if (state.polygon.draftRing.length < 3) return;
+    state.polygon.ring = state.polygon.draftRing.slice();
+    state.polygon.draftRing = [];
+    state.polygon.mode = 'idle';
+    sync();
+    recomputePolygonSeries();
+    render();
+  };
+
+  drawBtn.addEventListener('click', () => {
+    state.polygon.mode = 'drawing';
+    state.polygon.draftRing = [];
+    state.polygon.ring = null;
+    state.polygon.series = null;
+    sync();
+    render();
+  });
+
+  finishBtn.addEventListener('click', finish);
+
+  clearBtn.addEventListener('click', () => {
+    state.polygon.mode = 'idle';
+    state.polygon.draftRing = [];
+    state.polygon.ring = null;
+    state.polygon.series = null;
+    sync();
+    render();
+  });
+
+  map.on('click', (e) => {
+    if (state.polygon.mode !== 'drawing') return;
+    state.polygon.draftRing.push([e.lngLat.lng, e.lngLat.lat]);
+    sync();
+    render();
+  });
+
+  sync();
+}
+
 // ---------- Day loading ----------
 async function selectDay(dateYmd) {
   setStatus(`loading ${dateYmd}…`);
@@ -206,6 +340,7 @@ async function selectDay(dateYmd) {
     state.selectedVid = null;
     state.selectedVehiclePath = null;
     document.getElementById('vehicle-info').textContent = 'Click a point to select.';
+    recomputePolygonSeries();
     // Update time slider bounds in the UI (controls module reads state directly)
     document.dispatchEvent(new CustomEvent('day-loaded', { detail: { day } }));
     setStatus('rendering…');
@@ -254,10 +389,14 @@ async function init() {
       if (kind === 'colorBy' || kind === 'speedMax') {
         state.colors = buildColors(d, state.ui.colorBy, state.ui.speedMax);
       }
-      if (kind === 'filter')  state.filterValues = buildFilterValues(d, state.ui, state.filterValues);
+      if (kind === 'filter') {
+        state.filterValues = buildFilterValues(d, state.ui, state.filterValues);
+        recomputePolygonSeries();
+      }
       render();
     },
   });
+  setupPolygonControls();
   if (!state.meta.days || state.meta.days.length === 0) {
     setStatus('no days in meta.json');
     return;

@@ -1,11 +1,11 @@
-import { ScatterplotLayer, PathLayer } from '@deck.gl/layers';
+import { ScatterplotLayer, PathLayer, PolygonLayer } from '@deck.gl/layers';
 import { HeatmapLayer, HexagonLayer } from '@deck.gl/aggregation-layers';
 import { DataFilterExtension } from '@deck.gl/extensions';
 
 const RECORD_SIZE = 20;
 
 export function buildLayers(state) {
-  const { day, ui, colors, filterValues, selectedVehiclePath } = state;
+  const { day, ui, colors, filterValues, selectedVehiclePath, polygon } = state;
   const layers = [];
   if (!day) return layers;
 
@@ -93,6 +93,48 @@ export function buildLayers(state) {
         coverage: 0.9,
         colorRange: HEX_COLORS,
         opacity: 0.85,
+      }));
+    }
+  }
+
+  if (polygon) {
+    if (polygon.ring && polygon.ring.length >= 3) {
+      layers.push(new PolygonLayer({
+        id: 'roi-polygon',
+        data: [{ polygon: polygon.ring }],
+        getPolygon: (d) => d.polygon,
+        getFillColor: [255, 184, 78, 50],
+        getLineColor: [255, 184, 78, 230],
+        getLineWidth: 2,
+        lineWidthUnits: 'pixels',
+        filled: true,
+        stroked: true,
+        pickable: false,
+      }));
+    }
+    if (polygon.mode === 'drawing' && polygon.draftRing.length > 0) {
+      if (polygon.draftRing.length >= 2) {
+        layers.push(new PathLayer({
+          id: 'roi-draft-edge',
+          data: [{ path: polygon.draftRing }],
+          getPath: (d) => d.path,
+          getColor: [255, 184, 78, 220],
+          getWidth: 2,
+          widthUnits: 'pixels',
+          pickable: false,
+        }));
+      }
+      layers.push(new ScatterplotLayer({
+        id: 'roi-draft-vert',
+        data: polygon.draftRing,
+        getPosition: (d) => d,
+        getRadius: 5,
+        radiusUnits: 'pixels',
+        getFillColor: [255, 184, 78, 230],
+        stroked: true,
+        getLineColor: [10, 12, 18, 230],
+        lineWidthMinPixels: 1,
+        pickable: false,
       }));
     }
   }

@@ -110,6 +110,31 @@
         <div id="vehicle-info" class="muted">Click a point to select.</div>
       </section>
 
+      <section class="panel-section" id="polygon-section">
+        <h3>Polygon stats</h3>
+        <div class="row">
+          <button id="poly-draw">Draw polygon</button>
+          <button id="poly-finish" disabled>Finish</button>
+          <button id="poly-clear" disabled>Clear</button>
+        </div>
+        <div class="hint" id="poly-hint">Click "Draw polygon", then click on the map to add vertices.</div>
+        <div class="poly-chart">
+          <div class="poly-chart-label">count / 10min</div>
+          <canvas id="poly-chart-count"></canvas>
+        </div>
+        <div class="poly-chart">
+          <div class="poly-chart-label">avg speed (km/h) / 10min</div>
+          <canvas id="poly-chart-speed"></canvas>
+        </div>
+        <div class="poly-chart poly-chart-mfd">
+          <div class="poly-chart-label">MFD: count vs count × avg speed <span class="muted">(color = time of day)</span></div>
+          <canvas id="poly-chart-mfd"></canvas>
+          <div class="mfd-time-bar"></div>
+          <div class="mfd-time-bar-row"><span>0h</span><span>12h</span><span>24h</span></div>
+        </div>
+        <div id="poly-summary" class="muted"></div>
+      </section>
+
       <section class="panel-section">
         <h3>Stats</h3>
         <div id="stats" class="muted"></div>
