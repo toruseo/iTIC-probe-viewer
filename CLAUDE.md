@@ -2,230 +2,73 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this is
+Web GIS for visualizing iTIC Thailand vehicle probe data (~1.86M points/day). Two pieces:
 
-A Web GIS for visualizing iTIC Thailand vehicle probe data
-(~1.86M points/day × 31 days/month). Designed for local "bring-your-own-archive"
-use, but also deployed as a public demo on GitHub Pages with a small set of
-bundled days of preprocessed data. Two pieces:
+- `webgis/preprocess/preprocess.mjs` — Node CLI. CSV → 20 B/record packed binary.
+- `webgis/app/` — Vite + deck.gl + MapLibre frontend reading those binaries as typed arrays.
 
-1. `webgis/preprocess/preprocess.mjs` — Node CLI. Streams CSV out of the
-   compressed monthly archives (`PROBE_DATA_iTIC/PROBE-YYYYMM.tar.bz2`) via
-   `tar -xjOf`, then writes 20-byte/record packed binaries.
-2. `webgis/app/` — Vite + deck.gl + MapLibre frontend that fetches those binaries
-   over HTTP and views them as typed arrays in-place.
+Top-level `run.cmd` / `run.sh` orchestrate install → preprocess → dev-server. README is **user-facing only**; anything dev-side belongs here.
 
-Top-level `run.cmd` / `run.sh` orchestrate install → preprocess → dev-server
-for the local workflow.
-
-`README.md` is **user-facing only** (demo URL, UI controls, "use your own data"
-overview). All developer/architecture/binary-format/build/deploy detail lives
-here in CLAUDE.md (committed to the repo as the dev reference). Keep README
-terse — anything that's not a "what-can-I-do-as-a-visitor" detail belongs here.
-
-Source-data spec: `PROBE_DATA_iTIC/README_ITIC.TXT`.
-
-## Common commands
+## Commands
 
 ```bash
-# Full one-shot launch (Windows: .\run.cmd, bash: ./run.sh)
-.\run.cmd                # install + preprocess if needed + dev server + open browser
+.\run.cmd                # install + preprocess (if needed) + dev server
 .\run.cmd --serve        # skip preprocess
 .\run.cmd --rebuild      # force re-preprocess
-.\run.cmd --limit 1      # preprocess only first date in DEFAULT_DATES (fast iteration)
+.\run.cmd --limit 1      # only first DEFAULT_DATES entry
 
-# Manual preprocess — DATES selects which days to extract from the archives.
-# Format: comma-separated YYYYMMDD. Default = the bundled demo days
-# (DEFAULT_DATES in preprocess.mjs, currently 20250101,20250201).
-cd webgis/preprocess && DATES=20250101,20250201 node preprocess.mjs
-cd webgis/preprocess && LIMIT=1 node preprocess.mjs                 # first date only
+# preprocess flavors
+cd webgis/preprocess
+DATES=20250101,20250201 node preprocess.mjs
+APPEND=1 DATES=20250919 node preprocess.mjs   # add one day, keep existing vids
+KEEP_TMP=1 node preprocess.mjs                # leave .tmp/ for iterative re-runs
 
-cd webgis/app && npm run dev          # vite dev server
-cd webgis/app && npm run build        # production build (also a fast type/import check)
+# frontend
+cd webgis/app
+npm run dev    # vite dev server
+npm run build  # production build (also fast type/import sanity check)
 ```
 
-There is no test suite. The project's "tests" are smoke checks under `webgis/tmp/`
-(see Conventions below).
-
-**`tar` is required.** The preprocessor spawns `tar -xjOf` to stream a single
-day's CSV out of each `PROBE-YYYYMM.tar.bz2` without extracting the whole
-archive to disk. Windows 10+ ships GNU/BSD `tar.exe`; on POSIX systems any
-`tar` with bzip2 support works. On Windows, `--force-local` is added so GNU
-tar doesn't interpret `C:\...` as a remote host.
-
-**Preprocess is slow now — minutes per day, not seconds.** bzip2 streams aren't
-seekable, so each `tar -xjOf` has to decompress most of the ~1.1 GB monthly
-archive (single-threaded zlib-style work) before yielding the requested
-member. Empirically on the dev box: ~14 min for 20250101 (1.86M pts) and
-~19 min for 20250201 (2.29M pts). The CSV-parse + binary-write itself is
-still sub-second per day; the bzip2 dominates. If you need to regenerate
-many days, plan for ~15–20 min per day or pre-extract the archive once
-(`tar -xjf PROBE-YYYYMM.tar.bz2`) and point preprocess at the extracted
-`PROBE-YYYYMM/` instead — but the script as-shipped expects archives.
-
-## Deploying (GitHub Pages)
-
-- Live demo: https://toruseo.github.io/iTIC-probe-viewer/
-- `webgis/app/vite.config.js` sets `base: './'` so the build runs at any subdir.
-- `.github/workflows/pages.yml` runs `npm install --no-audit --no-fund && npm run build`
-  from `webgis/app/` and uploads `webgis/app/dist/` as the Pages artifact on
-  push to `main`. Using `npm install` (not `npm ci`) is intentional — the
-  lockfile is not strictly maintained in lockstep with `package.json`, and
-  `npm ci` failed CI for that reason. If you ever want to switch back to
-  `npm ci`, run `npm install` locally first and commit the regenerated
-  `package-lock.json`.
-- The repo ships a small set of preprocessed days
-  (`webgis/app/public/data/{YYYYMMDD}.bin` + `meta.json` + `vehicles.json`,
-  ~36–44 MB per day) so the deployed demo has something to render. The bundled
-  set is whatever `DEFAULT_DATES` in `preprocess.mjs` produces — currently
-  `20250101` and `20250201`. Add more days by editing `DEFAULT_DATES` (or
-  running with `DATES=...`) and committing the resulting `.bin` + updated
-  sidecars.
-- **GitHub Pages hard/soft limits** (from
-  [docs.github.com/en/pages/.../github-pages-limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits)
-  and [actions/upload-pages-artifact](https://github.com/actions/upload-pages-artifact)):
-  - Published site: **1 GB** ("Published GitHub Pages sites may be no larger than 1 GB" — stated as
-    a flat cap, not "soft"). Source repo: 1 GB *recommended*.
-  - `upload-pages-artifact`: **1 GB officially supported**, **10 GB unofficial absolute max**
-    ("Pages will not even attempt to deploy" beyond that).
-  - Per-file push limit: **100 MiB hard block** (50 MiB warning, 25 MiB browser-upload).
-    A single day's `.bin` is ~36–44 MB so this isn't the binding constraint here, but
-    aggregate size is.
-  - Bandwidth: 100 GB/month *soft*. Build cadence: 10/hour *soft*. Deploy timeout: 10 min hard.
-  - **Git LFS is not resolved by Pages** ("Git LFS cannot be used with GitHub Pages sites"),
-    so LFS is not a workaround for the 1 GB cap.
-- **Practical bundling budget**: with ~40 MB/day average, the 1 GB site cap allows
-  roughly **~25 days** of bundled binaries before either the site cap or the artifact
-  cap bites. The current loader (`webgis/app/src/binary.js#loadDay`) only fetches
-  from `data/{date}.bin` relative to the deployed site — there is no off-Pages
-  hosting path in the code today. Bundling more days requires either staying under
-  the cap or extending the loader.
-- Source archives (`PROBE_DATA_iTIC/PROBE-YYYYMM.tar.bz2`) are **gitignored**
-  by intent — they're large and only needed to regenerate the bundled binaries.
-- The build output is `webgis/app/dist/` which is gitignored — only the source
-  is committed; CI produces the artifact.
-
-## Binary format
-
-Per-day file: 64-byte header + N × 20-byte records, little-endian.
-
-Header:
-
-| off | type    | field                                 |
-| ---:|:------- |:------------------------------------- |
-| 0   | char[4] | magic `'PROB'`                        |
-| 4   | u32     | version (=1)                          |
-| 8   | u32     | record count                          |
-| 12  | u32     | date YYYYMMDD                         |
-| 16  | u32     | t_min (UTC unix sec)                  |
-| 20  | u32     | t_max                                 |
-| 24  | u32     | global vehicle count                  |
-| 28  | f32×4   | bbox (minLon, minLat, maxLon, maxLat) |
-
-Record (20 bytes):
-
-| off | type | field                                                  |
-| ---:|:---- |:------------------------------------------------------ |
-| 0   | f32  | lon                                                    |
-| 4   | f32  | lat                                                    |
-| 8   | u32  | t_unix (UTC sec)                                       |
-| 12  | u8   | speed (km/h, clamped 0..255)                           |
-| 13  | u8   | heading / 2 (0..180)                                   |
-| 14  | u8   | flags (bit0 for_hire, bit1 engine_acc, bit2 gps_valid) |
-| 15  | u8   | _pad                                                   |
-| 16  | u32  | vehicle index (`vehicles.json` の添字)                    |
-
-Sidecar files: `meta.json` (per-day count/bbox/t_min/t_max) and `vehicles.json`
-(global vehicle-ID dictionary, indexed by the record's vehicle index).
+No test suite. Smoke checks live under `webgis/tmp/` — write named `*.mjs`/`*.sh` rather than long inline `node -e "…"` to avoid permission-prompt thrash.
 
 ## Architecture
 
-**Pipeline is one-way and zero-copy where it matters.** Mental model:
-
 ```
-.csv.out  ─►  preprocess.mjs  ─►  YYYYMMDD.bin  ─►  binary.js  ─►  layers.js  ─►  deck.gl
-            (Node, ~1.6s/day)     (~36MB/day)    (typed views)   (binary attrs)
+.csv.out → preprocess.mjs → YYYYMMDD.bin → binary.js → layers.js → deck.gl
+                            (~36–44 MB)   (typed views) (binary attrs)
 ```
 
-The 20-byte record layout (`webgis/preprocess/preprocess.mjs` header comment) is
-the **load-bearing contract**. Both sides must agree byte-for-byte:
+**Binary layout is a load-bearing contract.** Canonical definition is the header comment at the top of `webgis/preprocess/preprocess.mjs` — read it when touching the format. The frontend (`webgis/app/src/binary.js`, `layers.js`) maps the records section to **strided typed-array views** fed directly to deck.gl as `{value, size, stride, offset}` binary attributes; no per-record JS objects are ever allocated. Changing record size, offsets, or header layout means updating `HEADER_SIZE`/`RECORD_SIZE`/hard-coded offsets in `binary.js` **and** stride values in `layers.js`. Mismatches compile fine and silently render garbage.
 
-- Producer: `preprocess.mjs` writes a 64-byte header + N × 20-byte records.
-- Consumer: `webgis/app/src/binary.js` parses the header, then exposes the
-  records section as **strided typed-array views** (`positionsView`, `u8View`,
-  `u32View`) — no per-record JS objects are ever materialized. `layers.js`
-  feeds those views to deck.gl as `{value, size, stride: 20, offset}` binary
-  attributes (`getPosition`, `getFillColor`, `getFilterValue`).
+**GPU filtering** via `DataFilterExtension` packs `[time_offset_sec, passFlag]` into `Float32Array(count*2)`. Slider drags only update `filterRange` — CPU never iterates per-record. Filter changes (gps/moving/speedMax/colorBy) rebuild the filterValues / colors buffers in one pass.
 
-If you change record size, change record offsets, or change the header in
-`preprocess.mjs`, you **must** update `binary.js` (`HEADER_SIZE`, `RECORD_SIZE`,
-the offset numbers in `extractVehiclePath` and `buildColors`) **and** `layers.js`
-(stride values). Mismatches compile fine and silently render garbage.
+**Aggregation layers (Heatmap, Hexagon, polygon ROI) take a CPU path** — they can't use the GPU filter, so they extract a flat `Float32Array` of visible `[lon,lat,...]` once per render. Hexagon sub-samples to 200K.
 
-**Time + filter is two-channel `DataFilterExtension`.** `layers.js` packs
-`filterValues` as a `Float32Array(count*2)` of `[time_offset_sec, passFlag]`.
-The points layer uses `filterRange: [[tStart,tEnd],[0.5,1.5]]` so the GPU drops
-records that fail either dimension. CPU never iterates 1.86M records during
-slider drags — only when filter inputs (gps/moving/speedMax/colorBy) change.
+**State is a plain object** in `webgis/app/src/main.js`. UI mutates it and calls `render()`, which rebuilds layers; deck.gl diffs them.
 
-**Heatmap/Hexagon take a different path.** They aggregate on the JS side, so
-they can't use the GPU filter. `layers.js` runs `filterPositions(...)` once to
-extract a flat `Float32Array` of visible `[lon,lat]` pairs, then feeds that to
-the aggregation layer. Hexagon further sub-samples to 200K via
-`subsamplePositions(...)`.
+## Preprocess gotchas
 
-**No bundler-side state.** `state` is a plain object in `main.js`; UI changes
-mutate it and call `render()` which builds fresh layers. There's no Redux/etc.
-Re-creating layers each render is fine because deck.gl diffs them.
+- **Extraction backend.** On Windows the bundled `tar.exe`'s bzip2 is ~25× slower than 7-Zip (1.4 GB archive: ~25 min vs ~1 min). The script auto-detects `7z.exe` at standard install paths (or `SEVENZIP_EXE` env) and uses two-pass extraction (bz2→tar, then untar). POSIX uses `tar -xjf` directly (fast). Don't go back to `tar -xjOf | node` streaming — Node readline backpressures bzip2 against itself.
+- **Tmp dir lifecycle.** `webgis/preprocess/.tmp/PROBE-YYYYMM/` created per run, deleted in `finally`. All dates sharing an archive are batched. `KEEP_TMP=1` preserves.
+- **APPEND=1.** Seeds `vehicleDict` from existing `vehicles.json` and keeps non-reprocessed days from `meta.json`. Without it, a clean rebuild remaps vehicle indices and **silently invalidates every previously-shipped `.bin`**. Always APPEND when adding days to a published bundle.
+- **Stale-data filter.** CSVs contain cached probes from prior years and `(0,0)` coords. Records outside `[fileDate-2d, fileDate+3d]` GMT+7, year<2000, or `(0,0)` are dropped. Don't relax — earlier prototypes had garbage bbox/t_min.
+- **GMT+7 ↔ UTC.** Source timestamps are GMT+7; preprocess stores **UTC unix seconds** (`tUtc/1000 - 7*3600`); frontend `formatBkk()` re-adds 7h for display. Don't double-adjust.
 
-**Time-window UI has two modes** wired in `controls.js`:
+## Frontend gotchas
 
-- `range` — slider1 = start offset from t_min, slider2 = end offset
-- `window` — slider1 = start offset, slider2 = window width
+- **`THAILAND_BBOX` in `main.js` overrides per-day bbox for initial map fit.** Bin-header bbox can be polluted by stale records leaking near `(0,0)`; the country-fixed extent keeps the first frame sane. Stats panel still shows the actual data bbox for diagnostics.
+- **HeatmapLayer / HexagonLayer silently fail on software-rendered Chromium** (`Binding weightsTexture not set`) — affects headless smoke tests under `chrome-headless-shell`. Use real Chromium for those layers. Points layer is unaffected. Don't try downgrading deck.gl/luma.gl to "fix" — luma.gl 9.1↔9.3 export changes mean a clean pin needs `overrides` on every `@luma.gl/*`.
 
-`setMode()` repaints slider2 from absolute state.ui.tStart/tEndUnix, so the two
-modes are interchangeable mid-session. **Play snapshots the window width once**
-on press (`state.playWindow`) — it does *not* re-read the slider every frame
-(that was the original "play does nothing" bug: full-day window made
-`s + window > span` always true, triggering wrap-to-zero every tick). Play
-falls back to a 1-hour window if the current selection covers ≥95% of the day.
+## Deploy (GitHub Pages)
 
-Slider step is `1` (second). Larger steps quantize the visual sweep at high
-play speeds.
+`.github/workflows/pages.yml` runs `npm install && npm run build` from `webgis/app/` and uploads `dist/` on push to `main`. `vite.config.js` sets `base: './'` so it works at any subpath.
 
-## Known issues (worth knowing before debugging)
+- **Use `npm install`, not `npm ci`** — lockfile isn't kept in lockstep with `package.json`. Switching back requires regenerating `package-lock.json` first.
+- **Bundled data**: `webgis/app/public/data/{YYYYMMDD}.bin` + `meta.json` + `vehicles.json` (~36–44 MB/day). The loader (`binary.js#loadDay`) only fetches `data/{date}.bin` relative to the deployed site; no off-Pages hosting path exists in code.
+- **Hard caps** ([docs](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits), [upload-pages-artifact](https://github.com/actions/upload-pages-artifact)): site **1 GB**, artifact **1 GB official / 10 GB unofficial**, per-file push **100 MiB**, bandwidth 100 GB/mo soft, deploy timeout 10 min. **Git LFS is not resolved by Pages.** With ~40 MB/day, ~25 days is the practical bundling budget.
+- Source archives `PROBE_DATA_iTIC/PROBE-*.tar.bz2` are gitignored.
 
-- **HeatmapLayer / HexagonLayer in deck.gl 9.3 + luma.gl 9.3** silently fail to
-  render in software-rendered (headless / `swiftshader`) environments
-  (`Binding weightsTexture not set`). Untested on real GPUs. Pinning deck.gl
-  to 9.1 breaks because luma.gl 9.3 dropped exports (`gouraudLighting`,
-  `getTypedArrayFromDataType`); a clean downgrade requires pinning every
-  `@luma.gl/*` to 9.1.x via `overrides`. The Points layer is unaffected.
+## Windows quirks
 
-- **Stale-data filtering.** The CSVs contain old GPS-cache rows (year 2022,
-  `(0,0)` coords, `1970-01-01 07:00:00`). `preprocess.mjs` rejects records
-  outside `[fileDate-2d, fileDate+3d]` GMT+7, year < 2000, and `(0,0)`
-  coordinates. Don't relax this without a reason — the resulting bbox /
-  t_min went bad in early prototypes.
-
-- **GMT+7 timestamps.** Source is GMT+7. The preprocessor stores **UTC unix
-  seconds** in records (`tUtc/1000 - 7*3600`). The frontend's `formatBkk()`
-  re-adds 7h for display. Don't double-adjust.
-
-## Conventions
-
-- **`webgis/tmp/`** is a sandbox for one-off scripts (header inspectors,
-  Playwright smoke tests, etc.). Anything ad-hoc lives there as a named
-  `*.mjs`/`*.sh` rather than as a long inline `node -e "..."` — those trigger
-  per-command permission prompts and slow iteration.
-- **`.cmd` files must use CRLF.** `cmd.exe` parses LF-only files as one giant
-  line and emits "X is not recognized" for every other token. After any edit,
-  verify with `head -c 100 run.cmd | od -c | head -3`.
-- **Don't name a Windows batch file `start.cmd`** — it collides with cmd.exe's
-  `start` builtin. `run.cmd` is the project's name.
-- **Headless verification:** `webgis/tmp/browser_smoke.mjs` exists as a
-  Playwright-against-running-dev-server smoke test. Real Chromium beats
-  `chrome-headless-shell` for anything touching deck.gl aggregation layers
-  (executable paths are hardcoded for the user's machine). 50s screenshots in
-  headless software-rendering are normal for HeatmapLayer; that does not mean
-  it's stuck.
+- **`.cmd` files must be CRLF** (cmd.exe treats LF-only as one line, emits "X is not recognized" cascades). Verify with `head -c 100 run.cmd | od -c | head -3`.
+- **Never name a Windows batch file `start.cmd`** — collides with cmd.exe's `start` builtin. The project's launcher is `run.cmd`.
