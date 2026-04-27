@@ -6,11 +6,9 @@
 
 ## デモ
 
-> **🌐 Live demo**: https://toruseo.jp/iTIC-probe-viewer/
-> 
-> （リポジトリ公開後に GitHub Pages で配信されます）
+**🌐 Live demo**: https://toruseo.jp/iTIC-probe-viewer/
 
-サンプル日（2025‑01‑01）が同梱されています。日付セレクタからすぐ可視化が始まります。
+サンプル日が同梱されています。日付セレクタからすぐ可視化が始まります。
 
 
 <p float="left">
