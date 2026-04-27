@@ -4,13 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A **local-only Web GIS** for visualizing iTIC Thailand vehicle probe data
-(`PROBE-YYYYMM/*.csv.out`, ~1.86M points/day × 31 days/month). Two pieces:
+A Web GIS for visualizing iTIC Thailand vehicle probe data
+(`PROBE-YYYYMM/*.csv.out`, ~1.86M points/day × 31 days/month). Designed for
+local "bring-your-own-CSV" use, but also deployed as a public demo on GitHub
+Pages with one bundled day of preprocessed data. Two pieces:
 
 1. `webgis/preprocess/preprocess.mjs` — Node CLI, CSV → 20-byte/record packed binary.
-2. `webgis/app/` — Vite + deck.gl + MapLibre frontend that mmap-loads those binaries.
+2. `webgis/app/` — Vite + deck.gl + MapLibre frontend that fetches those binaries
+   over HTTP and views them as typed arrays in-place.
 
-Top-level `run.cmd` / `run.sh` orchestrate install → preprocess → dev-server.
+Top-level `run.cmd` / `run.sh` orchestrate install → preprocess → dev-server
+for the local workflow.
 
 `README.md` is **user-facing only** (demo URL, UI controls, "use your own data"
 overview). All developer/architecture/binary-format/build/deploy detail lives
@@ -39,10 +43,15 @@ There is no test suite. The project's "tests" are smoke checks under `webgis/tmp
 
 ## Deploying (GitHub Pages)
 
+- Live demo: https://toruseo.github.io/iTIC-probe-viewer/
 - `webgis/app/vite.config.js` sets `base: './'` so the build runs at any subdir.
-- `.github/workflows/pages.yml` builds with `npm ci && npm run build` from
-  `webgis/app/` and uploads `webgis/app/dist/` as the Pages artifact on push to
-  `main`.
+- `.github/workflows/pages.yml` runs `npm install --no-audit --no-fund && npm run build`
+  from `webgis/app/` and uploads `webgis/app/dist/` as the Pages artifact on
+  push to `main`. Using `npm install` (not `npm ci`) is intentional — the
+  lockfile is not strictly maintained in lockstep with `package.json`, and
+  `npm ci` failed CI for that reason. If you ever want to switch back to
+  `npm ci`, run `npm install` locally first and commit the regenerated
+  `package-lock.json`.
 - The repo ships **one day** of preprocessed data
   (`webgis/app/public/data/20250101.bin` + `meta.json` + `vehicles.json`, ~36 MB total) so the
   deployed demo has something to render. Adding more days means committing more
