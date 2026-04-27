@@ -40,8 +40,9 @@ export function buildLayers(state) {
     }));
   }
 
-  if (ui.layers.heatmap || ui.layers.hexagon) {
-    const visiblePositions = filterPositions(day, filterValues, tStart, tEnd);
+  if (ui.layers.heatmap || ui.layers.heatmapAvgSpeed || ui.layers.hexagon) {
+    const { positions: visiblePositions, speeds: visibleSpeeds } =
+      filterPositionsAndSpeeds(day, filterValues, tStart, tEnd);
     if (ui.layers.heatmap && visiblePositions.length >= 2) {
       layers.push(new HeatmapLayer({
         id: 'heatmap',
@@ -56,6 +57,27 @@ export function buildLayers(state) {
         threshold: 0.04,
         aggregation: 'SUM',
         colorRange: HEATMAP_COLORS,
+      }));
+    }
+    if (ui.layers.heatmapAvgSpeed && visiblePositions.length >= 2) {
+      // Per-cell color = mean speed (km/h) of contributing points.
+      // colorDomain is fixed to [0, speedMax] so the legend stays meaningful
+      // regardless of the current max in view.
+      layers.push(new HeatmapLayer({
+        id: 'heatmap-avg-speed',
+        data: {
+          length: visiblePositions.length / 2,
+          attributes: {
+            getPosition: { value: visiblePositions, size: 2 },
+            getWeight:   { value: visibleSpeeds,    size: 1 },
+          },
+        },
+        radiusPixels: 30,
+        intensity: 1,
+        threshold: 0.04,
+        aggregation: 'MEAN',
+        colorDomain: [0, Math.max(1, ui.speedMax)],
+        colorRange: AVG_SPEED_COLORS,
       }));
     }
     if (ui.layers.hexagon) {
@@ -125,27 +147,29 @@ export function buildFilterValues(day, opts, out) {
   return arr;
 }
 
-// Extract a flat Float32Array of [lon, lat, lon, lat, ...] for records that
-// satisfy the current time window + filter values.
-function filterPositions(day, filterValues, tStart, tEnd) {
-  const { count, positionsView } = day;
-  // First pass: count
+// Extract flat typed arrays of [lon,lat,...] and [speed,...] for records that
+// satisfy the current time window + filter values. Speed is kept alongside so
+// the avg-speed heatmap can use it as `getWeight` without a second pass.
+function filterPositionsAndSpeeds(day, filterValues, tStart, tEnd) {
+  const { count, positionsView, u8View } = day;
   let n = 0;
   for (let i = 0; i < count; i++) {
     const t = filterValues[i * 2];
     const p = filterValues[i * 2 + 1];
     if (p > 0.5 && t >= tStart && t <= tEnd) n++;
   }
-  const out = new Float32Array(n * 2);
-  let k = 0;
+  const positions = new Float32Array(n * 2);
+  const speeds    = new Float32Array(n);
+  let k = 0, ks = 0;
   for (let i = 0; i < count; i++) {
     const t = filterValues[i * 2];
     const p = filterValues[i * 2 + 1];
     if (!(p > 0.5 && t >= tStart && t <= tEnd)) continue;
-    out[k++] = positionsView[i * 5];
-    out[k++] = positionsView[i * 5 + 1];
+    positions[k++] = positionsView[i * 5];
+    positions[k++] = positionsView[i * 5 + 1];
+    speeds[ks++]   = u8View[i * RECORD_SIZE + 12];
   }
-  return out;
+  return { positions, speeds };
 }
 
 // Take every Nth record so the array tops out at ~target points.
@@ -168,6 +192,17 @@ const HEATMAP_COLORS = [
   [50, 200, 220, 200],
   [255, 220, 100, 230],
   [255, 100, 50, 250],
+];
+
+// Avg-speed gradient: red (slow / congested) → green → blue (fast / free flow).
+// Mirrors the per-point speed palette in binary.js#buildColors so the two
+// visualizations read consistently.
+const AVG_SPEED_COLORS = [
+  [200,  40,  30,   0],
+  [230,  60,  40, 200],
+  [255, 180,  70, 220],
+  [120, 220, 140, 230],
+  [ 50, 130, 240, 240],
 ];
 
 const HEX_COLORS = [

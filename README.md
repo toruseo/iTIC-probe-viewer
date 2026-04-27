@@ -25,7 +25,7 @@
 | **Day**         | 表示する日を選ぶ                                                                   |
 | **Time window** | 時刻ウィンドウを `start–end` または `start + 幅` で指定。下の `10m / 30m / 1h / 3h` ボタンで一発設定 |
 | **▶ Play**      | 時刻ウィンドウをアニメーションで進める。`60x`–`1day/s` から再生速度を選択                               |
-| **Layers**      | Points（点群）/ Heatmap / Hexagon (3D) / 選択車両の軌跡 を切替                           |
+| **Layers**      | Points（点群）/ Heatmap (count) / Heatmap (avg speed) / Hexagon (3D) / 選択車両の軌跡 を切替 |
 | **Color by**    | 速度・進行方向・For-hire ランプ・エンジン状態 で着色                                            |
 | **Filter**      | GPS valid / 移動中 / 速度上限                                                     |
 

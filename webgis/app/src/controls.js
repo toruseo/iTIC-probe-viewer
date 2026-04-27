@@ -15,10 +15,11 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   // checkbox the user toggled last session can show "checked" while the
   // freshly-initialized state.ui has it false — display and UI disagree.
   // Authoritatively push state defaults into the DOM here.
-  $('lyr-points').checked   = state.ui.layers.points;
-  $('lyr-heatmap').checked  = state.ui.layers.heatmap;
-  $('lyr-hexagon').checked  = state.ui.layers.hexagon;
-  $('lyr-trips').checked    = state.ui.layers.trips;
+  $('lyr-points').checked      = state.ui.layers.points;
+  $('lyr-heatmap').checked     = state.ui.layers.heatmap;
+  $('lyr-heatmap-avg').checked = state.ui.layers.heatmapAvgSpeed;
+  $('lyr-hexagon').checked     = state.ui.layers.hexagon;
+  $('lyr-trips').checked       = state.ui.layers.trips;
   $('f-gps').checked        = state.ui.onlyGps;
   $('f-moving').checked     = state.ui.onlyMoving;
   $('f-speed-max').value    = String(state.ui.speedMax);
@@ -196,10 +197,11 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
 
   // ----- Layer toggles -----
   const bind = (id, fn) => $(id).addEventListener('change', () => { fn(); render(); });
-  bind('lyr-points',  () => state.ui.layers.points  = $('lyr-points').checked);
-  bind('lyr-heatmap', () => state.ui.layers.heatmap = $('lyr-heatmap').checked);
-  bind('lyr-hexagon', () => state.ui.layers.hexagon = $('lyr-hexagon').checked);
-  bind('lyr-trips',   () => state.ui.layers.trips   = $('lyr-trips').checked);
+  bind('lyr-points',      () => state.ui.layers.points          = $('lyr-points').checked);
+  bind('lyr-heatmap',     () => state.ui.layers.heatmap         = $('lyr-heatmap').checked);
+  bind('lyr-heatmap-avg', () => state.ui.layers.heatmapAvgSpeed = $('lyr-heatmap-avg').checked);
+  bind('lyr-hexagon',     () => state.ui.layers.hexagon         = $('lyr-hexagon').checked);
+  bind('lyr-trips',       () => state.ui.layers.trips           = $('lyr-trips').checked);
 
   // ----- Color by -----
   $('color-by').addEventListener('change', () => {

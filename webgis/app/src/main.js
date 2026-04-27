@@ -15,7 +15,7 @@ const state = {
     dateYmd: null,
     tStartUnix: 0,
     tEndUnix: 0,
-    layers: { points: true, heatmap: false, hexagon: false, trips: true },
+    layers: { points: true, heatmap: false, heatmapAvgSpeed: false, hexagon: false, trips: true },
     colorBy: 'speed',
     pointSize: 3,
     onlyGps: true,
