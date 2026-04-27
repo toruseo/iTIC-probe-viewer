@@ -6,7 +6,7 @@
 
 ## デモ
 
-> **🌐 Live demo**: https://&lt;your-github-username&gt;.github.io/itic-probe-viewer/
+> **🌐 Live demo**: https://toruseo.jp/iTIC-probe-viewer/
 > 
 > （リポジトリ公開後に GitHub Pages で配信されます）
 
