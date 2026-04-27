@@ -48,7 +48,7 @@ const map = new maplibregl.Map({
     compact: true,
     customAttribution: [
       'Data © <a href="https://www.iticfoundation.org/" target="_blank" rel="noopener">iTIC</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>',
-      '<a href="https://github.com/USER/REPO" target="_blank" rel="noopener">Source on GitHub</a>',
+      '<a href="https://github.com/toruseo/iTIC-probe-viewer" target="_blank" rel="noopener">Source on GitHub</a>',
     ],
   },
 });
