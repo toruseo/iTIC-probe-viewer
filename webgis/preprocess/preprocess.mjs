@@ -24,12 +24,25 @@
 //   off 40 f32 max_lat
 //   off 44 _reserved (20 bytes)
 
-import { createReadStream, createWriteStream, statSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { createWriteStream, statSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { spawn } from 'node:child_process';
+import { platform } from 'node:os';
 
-const SRC_DIR = resolve(process.argv[2] || '../../PROBE-202501');
+// New layout (2026-04): the original iTIC archives stay compressed in
+// PROBE_DATA_iTIC/ as `PROBE-YYYYMM.tar.bz2`. We stream individual days out of
+// each archive via `tar -xjOf` (no on-disk extraction).
+const SRC_DIR = resolve(process.argv[2] || '../../PROBE_DATA_iTIC');
 const OUT_DIR = resolve(process.argv[3] || '../app/public/data');
+
+// Which dates to extract. Override with `DATES=20250101,20250115,...`
+// Default = the two bundled demo days the repo ships preprocessed.
+const DEFAULT_DATES = [20250101, 20250201];
+
+// GNU tar on Windows treats `C:\...` as a remote host unless --force-local is
+// passed. macOS BSD tar lacks the flag but doesn't need it (POSIX paths).
+const TAR_LOCAL_FLAGS = platform() === 'win32' ? ['--force-local'] : [];
 
 const RECORD_SIZE = 20;
 const HEADER_SIZE = 64;
@@ -43,7 +56,27 @@ const getVid = (s) => {
   return v;
 };
 
-async function processFile(srcPath, dateYmd) {
+// Open a readable stream of one day's CSV by streaming a single member out of
+// the month archive. tar's `-O` writes the member to stdout, so we never
+// materialize the decompressed CSV on disk.
+function openCsvStreamFromArchive(archivePath, member) {
+  const args = [...TAR_LOCAL_FLAGS, '-xjOf', archivePath, member];
+  const child = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', (b) => { stderr += b.toString(); });
+  child.on('error', (e) => {
+    console.error(`tar spawn failed: ${e.message}`);
+  });
+  child.on('exit', (code) => {
+    if (code !== 0 && stderr) {
+      // Surface tar's complaints (missing member, bad archive, etc.).
+      process.stderr.write(`\ntar exit ${code}: ${stderr.trim()}\n`);
+    }
+  });
+  return child.stdout;
+}
+
+async function processFile(inputStream, dateYmd) {
   const t0 = Date.now();
   let cap = 1 << 20;
   let buf = Buffer.alloc(cap * RECORD_SIZE);
@@ -61,7 +94,7 @@ async function processFile(srcPath, dateYmd) {
   const tValidMin = dayStartUtc - 2 * 86400;
   const tValidMax = dayStartUtc + 3 * 86400;
 
-  const rl = createInterface({ input: createReadStream(srcPath), crlfDelay: Infinity });
+  const rl = createInterface({ input: inputStream, crlfDelay: Infinity });
 
   for await (const line of rl) {
     lineNo++;
@@ -161,21 +194,39 @@ async function processFile(srcPath, dateYmd) {
   };
 }
 
+function parseDates() {
+  const env = process.env.DATES;
+  if (env) {
+    const list = env.split(',').map(s => +s.trim()).filter(d => /^\d{8}$/.test(String(d)));
+    if (list.length === 0) {
+      console.error(`DATES env var present but no valid YYYYMMDD entries: ${env}`);
+      process.exit(1);
+    }
+    return list;
+  }
+  return DEFAULT_DATES.slice();
+}
+
 async function main() {
-  if (!statSync(SRC_DIR).isDirectory()) {
+  if (!existsSync(SRC_DIR) || !statSync(SRC_DIR).isDirectory()) {
     console.error(`Source directory not found: ${SRC_DIR}`);
     process.exit(1);
   }
-  let files = readdirSync(SRC_DIR).filter(f => /^\d{8}\.csv(\.out)?$/.test(f)).sort();
-  const limit = +process.env.LIMIT;
-  if (Number.isFinite(limit) && limit > 0) files = files.slice(0, limit);
-  if (files.length === 0) {
-    console.error(`No CSVs in ${SRC_DIR}`);
+  const archives = readdirSync(SRC_DIR).filter(f => /^PROBE-\d{6}\.tar\.bz2$/.test(f));
+  if (archives.length === 0) {
+    console.error(`No PROBE-YYYYMM.tar.bz2 archives in ${SRC_DIR}`);
     process.exit(1);
   }
-  console.log(`src : ${SRC_DIR}`);
-  console.log(`out : ${OUT_DIR}`);
-  console.log(`files: ${files.length}`);
+  const archiveByMonth = new Map();
+  for (const a of archives) archiveByMonth.set(+a.slice(6, 12), a);
+
+  let dates = parseDates();
+  const limit = +process.env.LIMIT;
+  if (Number.isFinite(limit) && limit > 0) dates = dates.slice(0, limit);
+
+  console.log(`src    : ${SRC_DIR}`);
+  console.log(`out    : ${OUT_DIR}`);
+  console.log(`dates  : ${dates.join(', ')}`);
 
   const meta = {
     generated_at: new Date().toISOString(),
@@ -185,13 +236,23 @@ async function main() {
     days: [],
   };
 
-  for (const f of files) {
-    const dateYmd = +f.slice(0, 8);
-    const srcPath = join(SRC_DIR, f);
-    const sizeMB = (statSync(srcPath).size / 1e6).toFixed(1);
-    process.stdout.write(`[${f}] (${sizeMB}MB) `);
-    const r = await processFile(srcPath, dateYmd);
+  for (const dateYmd of dates) {
+    const yyyymm = Math.floor(dateYmd / 100);
+    const archiveName = archiveByMonth.get(yyyymm);
+    if (!archiveName) {
+      console.warn(`[${dateYmd}] no archive for ${yyyymm}, skipping`);
+      continue;
+    }
+    const archivePath = join(SRC_DIR, archiveName);
+    const member = `PROBE-${yyyymm}/${dateYmd}.csv.out`;
+    const sizeMB = (statSync(archivePath).size / 1e6).toFixed(1);
+    process.stdout.write(`[${archiveName}::${dateYmd}] (archive ${sizeMB}MB) `);
+    const stream = openCsvStreamFromArchive(archivePath, member);
+    const r = await processFile(stream, dateYmd);
     console.log(` ${r.count.toLocaleString()} pts  skip=${r.skipped}  ${(r.elapsed_ms / 1000).toFixed(1)}s`);
+    if (r.count === 0) {
+      console.warn(`[${dateYmd}] zero records — wrong member path? expected ${member}`);
+    }
     meta.days.push(r);
     meta.vehicle_count = vehicleDict.size;
     writeFileSync(join(OUT_DIR, 'meta.json'), JSON.stringify(meta, null, 2));

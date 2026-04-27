@@ -35,14 +35,19 @@
 
 iTIC 形式の CSV（`VehicleID,gpsvalid,lat,lon,timestamp,speed,heading,for_hire,engine_acc`）を持っていれば、ローカルでビルドして自分のデータを可視化できます。
 
-1. [Node.js](https://nodejs.org/) 20+ をインストール
+1. [Node.js](https://nodejs.org/) 20+ をインストール（および `tar` コマンド。Windows 10+ には標準同梱）
 2. このリポジトリをクローン
-3. iTIC アーカイブを `PROBE_DATA_iTIC/PROBE-YYYYMM.tar.bz2` から `PROBE-YYYYMM/` に展開
+3. iTIC アーカイブ（`PROBE-YYYYMM.tar.bz2`）を `PROBE_DATA_iTIC/` の直下に置く（解凍は不要）
 4. ワンクリック起動:
    - Windows: エクスプローラから `run.cmd` をダブルクリック
    - bash 環境: `./run.sh`
 
-スクリプトが依存関係のインストール、CSV → バイナリ変換、Vite dev サーバ起動、ブラウザ表示まで自動で行います。
+スクリプトが依存関係のインストール、アーカイブからの該当日 CSV のストリーム抽出 → バイナリ変換、Vite dev サーバ起動、ブラウザ表示まで自動で行います。デフォルトでは `webgis/preprocess/preprocess.mjs` の `DEFAULT_DATES`（試用版は 1/1 と 2/1）の日付だけを処理します。任意の日付に切り替えるには環境変数で指定:
+
+```bash
+cd webgis/preprocess
+DATES=20250101,20250115,20250201 node preprocess.mjs
+```
 
 ## その他
 

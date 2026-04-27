@@ -10,6 +10,22 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => document.querySelectorAll(sel);
 
+  // ----- DOM ↔ state sync at init -----
+  // Browsers restore form-control values across reload (bfcache, F5), so a
+  // checkbox the user toggled last session can show "checked" while the
+  // freshly-initialized state.ui has it false — display and UI disagree.
+  // Authoritatively push state defaults into the DOM here.
+  $('lyr-points').checked   = state.ui.layers.points;
+  $('lyr-heatmap').checked  = state.ui.layers.heatmap;
+  $('lyr-hexagon').checked  = state.ui.layers.hexagon;
+  $('lyr-trips').checked    = state.ui.layers.trips;
+  $('f-gps').checked        = state.ui.onlyGps;
+  $('f-moving').checked     = state.ui.onlyMoving;
+  $('f-speed-max').value    = String(state.ui.speedMax);
+  $('f-speed-max-v').textContent = String(state.ui.speedMax);
+  $('point-size').value     = String(state.ui.pointSize);
+  $('color-by').value       = state.ui.colorBy;
+
   // ----- Day selector -----
   const daySelect = $('day-select');
   for (const d of state.meta.days) {
@@ -200,11 +216,15 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   const filterChange = () => {
     state.ui.onlyGps    = $('f-gps').checked;
     state.ui.onlyMoving = $('f-moving').checked;
-    state.ui.speedMax   = +$('f-speed-max').value;
-    $('f-speed-max-v').textContent = String(state.ui.speedMax);
     onUiChanged('filter');
   };
   $('f-gps').addEventListener('change', filterChange);
   $('f-moving').addEventListener('change', filterChange);
-  $('f-speed-max').addEventListener('input', filterChange);
+
+  // ----- Speed color-scale max (does NOT filter; only rescales the speed gradient) -----
+  $('f-speed-max').addEventListener('input', () => {
+    state.ui.speedMax = +$('f-speed-max').value;
+    $('f-speed-max-v').textContent = String(state.ui.speedMax);
+    onUiChanged('speedMax');
+  });
 }

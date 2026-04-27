@@ -104,11 +104,13 @@ export function buildLayers(state) {
 
 // Pack [time_offset, passFlag] for every record. Allocated once; the caller
 // provides reusable backing storage when possible.
+// `speedMax` is intentionally NOT a filter — it only drives the color scale
+// upper bound (see buildColors). Records faster than the slider value still
+// render, just clamped to the top color.
 export function buildFilterValues(day, opts, out) {
   const { count, u8View, times } = day;
   const onlyGps = !!opts.onlyGps;
   const onlyMoving = !!opts.onlyMoving;
-  const speedMax = opts.speedMax ?? 255;
   const arr = out && out.length === count * 2 ? out : new Float32Array(count * 2);
   for (let i = 0; i < count; i++) {
     const off = i * RECORD_SIZE;
@@ -117,7 +119,6 @@ export function buildFilterValues(day, opts, out) {
     let pass = 1;
     if (onlyGps && !(fl & 4)) pass = 0;
     else if (onlyMoving && sp === 0) pass = 0;
-    else if (sp > speedMax) pass = 0;
     arr[i * 2] = times[i];
     arr[i * 2 + 1] = pass;
   }

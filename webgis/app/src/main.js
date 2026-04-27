@@ -20,7 +20,7 @@ const state = {
     pointSize: 3,
     onlyGps: true,
     onlyMoving: true,
-    speedMax: 200,
+    speedMax: 100,
   },
   colors: null,
   filterValues: null,
@@ -175,8 +175,9 @@ function updateLegend() {
   const mode = state.ui.colorBy;
   let html = `<div class="muted">Color: ${mode}</div>`;
   if (mode === 'speed') {
-    html += `<div class="legend-bar" style="background:linear-gradient(90deg,#0,#0dc,#fc4,#f63)"></div>
-             <div class="legend-row"><span>0</span><span>120 km/h</span></div>`;
+    // Red (slow) → mid → blue (fast). Mirrors buildColors() in binary.js.
+    html += `<div class="legend-bar" style="background:linear-gradient(90deg,#e62800,#73dc78,#0028f0)"></div>
+             <div class="legend-row"><span>0</span><span>${state.ui.speedMax} km/h</span></div>`;
   } else if (mode === 'heading') {
     html += `<div class="legend-bar" style="background:conic-gradient(from 0deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)"></div>
              <div class="legend-row"><span>N</span><span>E·S·W</span></div>`;
@@ -200,7 +201,7 @@ async function selectDay(dateYmd) {
     state.ui.dateYmd = dateYmd;
     state.ui.tStartUnix = day.tMin;
     state.ui.tEndUnix = day.tMax;
-    state.colors = buildColors(day, state.ui.colorBy);
+    state.colors = buildColors(day, state.ui.colorBy, state.ui.speedMax);
     state.filterValues = buildFilterValues(day, state.ui);
     state.selectedVid = null;
     state.selectedVehiclePath = null;
@@ -250,7 +251,9 @@ async function init() {
     onUiChanged: (kind) => {
       const d = state.day;
       if (!d) return;
-      if (kind === 'colorBy') state.colors = buildColors(d, state.ui.colorBy);
+      if (kind === 'colorBy' || kind === 'speedMax') {
+        state.colors = buildColors(d, state.ui.colorBy, state.ui.speedMax);
+      }
       if (kind === 'filter')  state.filterValues = buildFilterValues(d, state.ui, state.filterValues);
       render();
     },

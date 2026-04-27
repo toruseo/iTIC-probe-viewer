@@ -50,8 +50,19 @@ export async function loadDay(date, onProgress) {
   if (version !== 1) throw new Error('unsupported version ' + version);
   const count = dv.getUint32(8, true);
   const dateYmd = dv.getUint32(12, true);
-  const tMin = dv.getUint32(16, true);
-  const tMax = dv.getUint32(20, true);
+  // Header tMin/tMax span the *records actually present* (which can leak a day
+  // or two on either side of the file date due to cache/stale-probe outliers).
+  // We deliberately ignore them for display: the slider should expose just the
+  // file date in GMT+7, since outside that window there's effectively no data.
+  // Off-day records still live in the binary but become unreachable because
+  // their `times[]` offset falls outside [0, 86399].
+  const _tMinHdr = dv.getUint32(16, true);
+  const _tMaxHdr = dv.getUint32(20, true);
+  const yyyy = Math.floor(dateYmd / 10000);
+  const mm   = Math.floor((dateYmd / 100) % 100);
+  const dd   = dateYmd % 100;
+  const tMin = Date.UTC(yyyy, mm - 1, dd) / 1000 - 7 * 3600; // 00:00:00 GMT+7
+  const tMax = tMin + 86400 - 1;                              // 23:59:59 GMT+7
   const vehicleCount = dv.getUint32(24, true);
   const minLon = dv.getFloat32(28, true);
   const minLat = dv.getFloat32(32, true);
@@ -93,19 +104,22 @@ export async function loadDay(date, onProgress) {
 }
 
 // Build per-record color array for the active "color by" mode.
+// `speedMax` (km/h) sets the upper bound of the speed gradient (driven by the
+// "speed ≤" UI slider). Records faster than that just clamp to the top color.
 // Returns a freshly allocated Uint8Array of length count*4 (RGBA).
-export function buildColors(day, mode) {
+export function buildColors(day, mode, speedMax = 120) {
   const { count, u8View } = day;
   const out = new Uint8Array(count * 4);
   if (mode === 'speed') {
+    const denom = Math.max(1, speedMax);
     for (let i = 0; i < count; i++) {
       const sp = u8View[i * RECORD_SIZE + 12]; // 0..255
-      // Cool→warm gradient up to 120 km/h
-      const t = Math.min(1, sp / 120);
-      // viridis-ish
-      const r = (t * 255) | 0;
-      const g = (Math.max(0, 1 - Math.abs(t - 0.5) * 2) * 200 + 40) | 0;
-      const b = ((1 - t) * 220) | 0;
+      // Red (slow / congested) → blue (fast / free flow), up to `speedMax` km/h.
+      // Conventional traffic-engineering palette.
+      const t = Math.min(1, sp / denom);
+      const r = ((1 - t) * 230) | 0;
+      const g = (Math.max(0, 1 - Math.abs(t - 0.5) * 2) * 180 + 40) | 0;
+      const b = (t * 240) | 0;
       const o = i * 4;
       out[o] = r; out[o + 1] = g; out[o + 2] = b; out[o + 3] = 220;
     }

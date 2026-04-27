@@ -5,11 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A Web GIS for visualizing iTIC Thailand vehicle probe data
-(`PROBE-YYYYMM/*.csv.out`, ~1.86M points/day × 31 days/month). Designed for
-local "bring-your-own-CSV" use, but also deployed as a public demo on GitHub
-Pages with one bundled day of preprocessed data. Two pieces:
+(~1.86M points/day × 31 days/month). Designed for local "bring-your-own-archive"
+use, but also deployed as a public demo on GitHub Pages with a small set of
+bundled days of preprocessed data. Two pieces:
 
-1. `webgis/preprocess/preprocess.mjs` — Node CLI, CSV → 20-byte/record packed binary.
+1. `webgis/preprocess/preprocess.mjs` — Node CLI. Streams CSV out of the
+   compressed monthly archives (`PROBE_DATA_iTIC/PROBE-YYYYMM.tar.bz2`) via
+   `tar -xjOf`, then writes 20-byte/record packed binaries.
 2. `webgis/app/` — Vite + deck.gl + MapLibre frontend that fetches those binaries
    over HTTP and views them as typed arrays in-place.
 
@@ -30,16 +32,36 @@ Source-data spec: `PROBE_DATA_iTIC/README_ITIC.TXT`.
 .\run.cmd                # install + preprocess if needed + dev server + open browser
 .\run.cmd --serve        # skip preprocess
 .\run.cmd --rebuild      # force re-preprocess
-.\run.cmd --limit 1      # preprocess only first day (fast iteration)
+.\run.cmd --limit 1      # preprocess only first date in DEFAULT_DATES (fast iteration)
 
-# Manual
-cd webgis/preprocess && LIMIT=1 node preprocess.mjs
+# Manual preprocess — DATES selects which days to extract from the archives.
+# Format: comma-separated YYYYMMDD. Default = the bundled demo days
+# (DEFAULT_DATES in preprocess.mjs, currently 20250101,20250201).
+cd webgis/preprocess && DATES=20250101,20250201 node preprocess.mjs
+cd webgis/preprocess && LIMIT=1 node preprocess.mjs                 # first date only
+
 cd webgis/app && npm run dev          # vite dev server
 cd webgis/app && npm run build        # production build (also a fast type/import check)
 ```
 
 There is no test suite. The project's "tests" are smoke checks under `webgis/tmp/`
 (see Conventions below).
+
+**`tar` is required.** The preprocessor spawns `tar -xjOf` to stream a single
+day's CSV out of each `PROBE-YYYYMM.tar.bz2` without extracting the whole
+archive to disk. Windows 10+ ships GNU/BSD `tar.exe`; on POSIX systems any
+`tar` with bzip2 support works. On Windows, `--force-local` is added so GNU
+tar doesn't interpret `C:\...` as a remote host.
+
+**Preprocess is slow now — minutes per day, not seconds.** bzip2 streams aren't
+seekable, so each `tar -xjOf` has to decompress most of the ~1.1 GB monthly
+archive (single-threaded zlib-style work) before yielding the requested
+member. Empirically on the dev box: ~14 min for 20250101 (1.86M pts) and
+~19 min for 20250201 (2.29M pts). The CSV-parse + binary-write itself is
+still sub-second per day; the bzip2 dominates. If you need to regenerate
+many days, plan for ~15–20 min per day or pre-extract the archive once
+(`tar -xjf PROBE-YYYYMM.tar.bz2`) and point preprocess at the extracted
+`PROBE-YYYYMM/` instead — but the script as-shipped expects archives.
 
 ## Deploying (GitHub Pages)
 
@@ -52,11 +74,16 @@ There is no test suite. The project's "tests" are smoke checks under `webgis/tmp
   `npm ci` failed CI for that reason. If you ever want to switch back to
   `npm ci`, run `npm install` locally first and commit the regenerated
   `package-lock.json`.
-- The repo ships **one day** of preprocessed data
-  (`webgis/app/public/data/20250101.bin` + `meta.json` + `vehicles.json`, ~36 MB total) so the
-  deployed demo has something to render. Adding more days means committing more
-  binaries — fine up to a few hundred MB; beyond that, host data elsewhere and
-  add a URL-based loader.
+- The repo ships a small set of preprocessed days
+  (`webgis/app/public/data/{YYYYMMDD}.bin` + `meta.json` + `vehicles.json`,
+  ~36 MB per day) so the deployed demo has something to render. The bundled
+  set is whatever `DEFAULT_DATES` in `preprocess.mjs` produces — currently
+  `20250101` and `20250201`. Add more days by editing `DEFAULT_DATES` (or
+  running with `DATES=...`) and committing the resulting `.bin` + updated
+  sidecars. Fine up to a few hundred MB; beyond that, host data elsewhere
+  and add a URL-based loader.
+- Source archives (`PROBE_DATA_iTIC/PROBE-YYYYMM.tar.bz2`) are **gitignored**
+  by intent — they're large and only needed to regenerate the bundled binaries.
 - The build output is `webgis/app/dist/` which is gitignored — only the source
   is committed; CI produces the artifact.
 
