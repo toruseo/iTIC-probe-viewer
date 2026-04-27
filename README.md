@@ -12,6 +12,12 @@
 
 サンプル日（2025‑01‑01）が同梱されています。日付セレクタからすぐ可視化が始まります。
 
+
+<p float="left">
+<img width="400" alt="image2" src="https://github.com/user-attachments/assets/540b592a-7b4f-4e41-b225-e8a075679730" />
+<img width="400" alt="image1" src="https://github.com/user-attachments/assets/2bce0e44-30ef-47f6-ace0-884c124fbb49" />
+</p>
+
 ## 操作
 
 左パネルから:
