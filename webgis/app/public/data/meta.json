@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-27T06:05:59.383Z",
+  "generated_at": "2026-04-27T09:26:52.010Z",
   "record_size": 20,
   "header_size": 64,
   "timezone_offset_hours": 7,
@@ -35,7 +35,23 @@
       ],
       "file": "20250201.bin",
       "elapsed_ms": 1148767
+    },
+    {
+      "date": 20250919,
+      "count": 2465035,
+      "skipped": 61,
+      "line_count": 2465096,
+      "t_min": 1758081596,
+      "t_max": 1758301191,
+      "bbox": [
+        0.01667,
+        6.02136,
+        106.02827,
+        20.44292
+      ],
+      "file": "20250919.bin",
+      "elapsed_ms": 2527
     }
   ],
-  "vehicle_count": 3703
+  "vehicle_count": 4551
 }

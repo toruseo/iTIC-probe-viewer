@@ -24,25 +24,50 @@
 //   off 40 f32 max_lat
 //   off 44 _reserved (20 bytes)
 
-import { createWriteStream, statSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, statSync, existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
 
-// New layout (2026-04): the original iTIC archives stay compressed in
-// PROBE_DATA_iTIC/ as `PROBE-YYYYMM.tar.bz2`. We stream individual days out of
-// each archive via `tar -xjOf` (no on-disk extraction).
+// Source archives (PROBE-YYYYMM.tar.bz2) live in PROBE_DATA_iTIC/.
+// To process a day, we extract the *whole* monthly archive once into TMP_DIR,
+// then read individual days off disk. The earlier streaming approach
+// (`tar -xjOf … | node`) backpressured bzip2 against Node's readline and
+// burned ~17 min per day; full extraction completes the bzip2 work in one
+// CPU-bound pass and per-day reads are sub-second.
+//
+// TMP_DIR is wiped after each archive's days are done, unless KEEP_TMP=1.
 const SRC_DIR = resolve(process.argv[2] || '../../PROBE_DATA_iTIC');
 const OUT_DIR = resolve(process.argv[3] || '../app/public/data');
+const TMP_DIR = resolve(process.env.TMP_EXTRACT_DIR || './.tmp');
 
 // Which dates to extract. Override with `DATES=20250101,20250115,...`
-// Default = the two bundled demo days the repo ships preprocessed.
-const DEFAULT_DATES = [20250101, 20250201];
+// Default = the bundled demo days the repo ships preprocessed.
+const DEFAULT_DATES = [20250101, 20250201, 20250919];
 
 // GNU tar on Windows treats `C:\...` as a remote host unless --force-local is
 // passed. macOS BSD tar lacks the flag but doesn't need it (POSIX paths).
 const TAR_LOCAL_FLAGS = platform() === 'win32' ? ['--force-local'] : [];
+
+// On Windows, the bundled tar.exe's bzip2 implementation is dramatically
+// slower than 7-Zip (observed ~25× difference: 1.4 GB tar.bz2 took ~25 min
+// via tar.exe vs ~1 min via 7z.exe). When 7z.exe is available we route
+// extraction through it; everywhere else (POSIX) we use GNU tar directly,
+// which is fine.
+function find7z() {
+  if (platform() !== 'win32') return null;
+  const env7z = process.env.SEVENZIP_EXE;
+  if (env7z && existsSync(env7z)) return env7z;
+  for (const p of [
+    'C:\\Program Files\\7-Zip\\7z.exe',
+    'C:\\Program Files (x86)\\7-Zip\\7z.exe',
+  ]) {
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+const SEVEN_ZIP = find7z();
 
 const RECORD_SIZE = 20;
 const HEADER_SIZE = 64;
@@ -56,24 +81,42 @@ const getVid = (s) => {
   return v;
 };
 
-// Open a readable stream of one day's CSV by streaming a single member out of
-// the month archive. tar's `-O` writes the member to stdout, so we never
-// materialize the decompressed CSV on disk.
-function openCsvStreamFromArchive(archivePath, member) {
-  const args = [...TAR_LOCAL_FLAGS, '-xjOf', archivePath, member];
-  const child = spawn('tar', args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  let stderr = '';
-  child.stderr.on('data', (b) => { stderr += b.toString(); });
-  child.on('error', (e) => {
-    console.error(`tar spawn failed: ${e.message}`);
+// Extract a whole monthly archive into `destParent`. Returns when tar exits
+// successfully; rejects with the captured stderr otherwise. The resulting
+// layout matches the archive: `destParent/PROBE-YYYYMM/YYYYMMDD.csv.out`.
+function spawnP(exe, args, opts = {}) {
+  return new Promise((res, rej) => {
+    const child = spawn(exe, args, { stdio: ['ignore', 'inherit', 'pipe'], ...opts });
+    let stderr = '';
+    child.stderr.on('data', (b) => { stderr += b.toString(); process.stderr.write(b); });
+    child.on('error', rej);
+    child.on('exit', (code) => {
+      if (code === 0) res();
+      else rej(new Error(`${exe} exit ${code}: ${stderr.trim()}`));
+    });
   });
-  child.on('exit', (code) => {
-    if (code !== 0 && stderr) {
-      // Surface tar's complaints (missing member, bad archive, etc.).
-      process.stderr.write(`\ntar exit ${code}: ${stderr.trim()}\n`);
+}
+
+async function extractArchive(archivePath, destParent) {
+  if (SEVEN_ZIP) {
+    // 7z handles .tar.bz2 in two passes: bz2→tar, then untar. Pipe-based
+    // single-pass would also work but Node-level pipe buffering reintroduces
+    // the same throttling issue we just escaped from. Two passes via disk is
+    // ~1 min total for a 1.4 GB archive on this dev box.
+    const tarName = archivePath.split(/[\\/]/).pop().replace(/\.bz2$/i, '');
+    const tarPath = join(destParent, tarName);
+    await spawnP(SEVEN_ZIP, ['x', archivePath, `-o${destParent}`, '-y']);
+    try {
+      await spawnP(SEVEN_ZIP, ['x', tarPath, `-o${destParent}`, '-y']);
+    } finally {
+      rmSync(tarPath, { force: true });
     }
-  });
-  return child.stdout;
+  } else {
+    // POSIX path: GNU tar with built-in bzip2 is fast enough.
+    // cwd avoids tar's `-C C:\…` colon-as-host mis-parse on Windows, but on
+    // POSIX paths there is no colon, so this is a no-op safety measure.
+    await spawnP('tar', [...TAR_LOCAL_FLAGS, '-xjf', archivePath], { cwd: destParent });
+  }
 }
 
 async function processFile(inputStream, dateYmd) {
@@ -224,9 +267,13 @@ async function main() {
   const limit = +process.env.LIMIT;
   if (Number.isFinite(limit) && limit > 0) dates = dates.slice(0, limit);
 
-  console.log(`src    : ${SRC_DIR}`);
-  console.log(`out    : ${OUT_DIR}`);
-  console.log(`dates  : ${dates.join(', ')}`);
+  // APPEND=1 reuses the existing vehicles.json/meta.json so that vid indices
+  // already baked into shipped *.bin files stay valid. Without this flag the
+  // dictionary is built from scratch — fine for a clean rebuild, but it
+  // invalidates every previously-emitted .bin since vid mapping shifts.
+  const append = !!process.env.APPEND && process.env.APPEND !== '0';
+  const metaPath = join(OUT_DIR, 'meta.json');
+  const vehiclesPath = join(OUT_DIR, 'vehicles.json');
 
   const meta = {
     generated_at: new Date().toISOString(),
@@ -236,31 +283,94 @@ async function main() {
     days: [],
   };
 
-  for (const dateYmd of dates) {
-    const yyyymm = Math.floor(dateYmd / 100);
+  if (append) {
+    if (existsSync(vehiclesPath)) {
+      const existing = JSON.parse(readFileSync(vehiclesPath, 'utf8'));
+      for (let i = 0; i < existing.length; i++) vehicleDict.set(existing[i], i);
+      console.log(`append : seeded vehicleDict from ${existing.length.toLocaleString()} existing IDs`);
+    }
+    if (existsSync(metaPath)) {
+      const existing = JSON.parse(readFileSync(metaPath, 'utf8'));
+      const reproc = new Set(dates);
+      meta.days = (existing.days || []).filter((d) => !reproc.has(d.date));
+      console.log(`append : kept ${meta.days.length} existing day(s) from meta.json (reprocessing ${dates.length})`);
+    }
+  }
+
+  console.log(`src    : ${SRC_DIR}`);
+  console.log(`out    : ${OUT_DIR}`);
+  console.log(`dates  : ${dates.join(', ')}${append ? '  (APPEND mode)' : ''}`);
+
+  // Group requested dates by their source archive so we extract each archive
+  // at most once per run. KEEP_TMP=1 leaves the extracted CSVs on disk for
+  // iterative dev re-runs (skip extraction if all needed days are present).
+  const datesByArchive = new Map();
+  for (const d of dates) {
+    const m = Math.floor(d / 100);
+    if (!datesByArchive.has(m)) datesByArchive.set(m, []);
+    datesByArchive.get(m).push(d);
+  }
+  const keepTmp = !!process.env.KEEP_TMP && process.env.KEEP_TMP !== '0';
+  mkdirSync(TMP_DIR, { recursive: true });
+  console.log(`tmp    : ${TMP_DIR}${keepTmp ? '  (KEEP_TMP=1: not deleted at end)' : ''}`);
+  console.log(`extract: ${SEVEN_ZIP ? `7z (${SEVEN_ZIP})` : 'tar -xjf'}`);
+
+  for (const [yyyymm, datesInArchive] of datesByArchive) {
     const archiveName = archiveByMonth.get(yyyymm);
     if (!archiveName) {
-      console.warn(`[${dateYmd}] no archive for ${yyyymm}, skipping`);
+      console.warn(`no archive for ${yyyymm}, skipping ${datesInArchive.join(',')}`);
       continue;
     }
     const archivePath = join(SRC_DIR, archiveName);
-    const member = `PROBE-${yyyymm}/${dateYmd}.csv.out`;
-    const sizeMB = (statSync(archivePath).size / 1e6).toFixed(1);
-    process.stdout.write(`[${archiveName}::${dateYmd}] (archive ${sizeMB}MB) `);
-    const stream = openCsvStreamFromArchive(archivePath, member);
-    const r = await processFile(stream, dateYmd);
-    console.log(` ${r.count.toLocaleString()} pts  skip=${r.skipped}  ${(r.elapsed_ms / 1000).toFixed(1)}s`);
-    if (r.count === 0) {
-      console.warn(`[${dateYmd}] zero records — wrong member path? expected ${member}`);
+    const extractDir = join(TMP_DIR, `PROBE-${yyyymm}`);
+    const neededPaths = datesInArchive.map((d) => join(extractDir, `${d}.csv.out`));
+    const allPresent = neededPaths.every((p) => existsSync(p) && statSync(p).size > 0);
+
+    try {
+      if (allPresent) {
+        console.log(`reusing extracted ${extractDir}`);
+      } else {
+        const aSizeMB = (statSync(archivePath).size / 1e6).toFixed(1);
+        console.log(`extracting ${archiveName} (${aSizeMB}MB) → ${extractDir}…`);
+        const t0 = Date.now();
+        await extractArchive(archivePath, TMP_DIR);
+        console.log(`  extracted in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      }
+
+      for (const dateYmd of datesInArchive) {
+        const csvPath = join(extractDir, `${dateYmd}.csv.out`);
+        if (!existsSync(csvPath)) {
+          console.warn(`[${dateYmd}] missing in extract: ${csvPath}, skipping`);
+          continue;
+        }
+        const sizeMB = (statSync(csvPath).size / 1e6).toFixed(1);
+        process.stdout.write(`[${dateYmd}] (csv ${sizeMB}MB) `);
+        const r = await processFile(createReadStream(csvPath), dateYmd);
+        console.log(` ${r.count.toLocaleString()} pts  skip=${r.skipped}  ${(r.elapsed_ms / 1000).toFixed(1)}s`);
+        if (r.count === 0) {
+          console.warn(`[${dateYmd}] zero records — wrong CSV path? expected ${csvPath}`);
+        }
+        meta.days.push(r);
+        meta.days.sort((a, b) => a.date - b.date);
+        meta.vehicle_count = vehicleDict.size;
+        writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+      }
+    } finally {
+      if (!keepTmp) {
+        rmSync(extractDir, { recursive: true, force: true });
+      }
     }
-    meta.days.push(r);
-    meta.vehicle_count = vehicleDict.size;
-    writeFileSync(join(OUT_DIR, 'meta.json'), JSON.stringify(meta, null, 2));
+  }
+
+  if (!keepTmp) {
+    try {
+      if (readdirSync(TMP_DIR).length === 0) rmSync(TMP_DIR, { recursive: true, force: true });
+    } catch { /* ignore */ }
   }
 
   const vehicles = new Array(vehicleDict.size);
   for (const [k, v] of vehicleDict) vehicles[v] = k;
-  writeFileSync(join(OUT_DIR, 'vehicles.json'), JSON.stringify(vehicles));
+  writeFileSync(vehiclesPath, JSON.stringify(vehicles));
   console.log(`vehicles.json: ${vehicles.length.toLocaleString()} unique IDs`);
   console.log('Done.');
 }

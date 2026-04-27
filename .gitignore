@@ -101,5 +101,8 @@ webgis/app/dist/
 # scratch / disposable
 webgis/tmp/
 
+# preprocess one-time extract dir (auto-deleted at end of run)
+webgis/preprocess/.tmp/
+
 # may contain personal info
 .claude/*

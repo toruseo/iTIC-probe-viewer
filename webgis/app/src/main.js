@@ -9,6 +9,13 @@ import { drawTimeSeries, drawScatter } from './chart.js';
 
 const BASEMAP_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
+// Initial map fit. We deliberately ignore each day's bbox (from the bin header)
+// because stale/cached probe records occasionally leak coordinates near (0,0)
+// or other rogue origins through the preprocess filter, which would yank the
+// view to a useless extent. A fixed Thailand bbox keeps the first frame sane
+// regardless of which day is loaded.
+const THAILAND_BBOX = [97.0, 5.5, 106.0, 20.7];
+
 const state = {
   meta: null,
   vehicles: [],
@@ -345,8 +352,8 @@ async function selectDay(dateYmd) {
     document.dispatchEvent(new CustomEvent('day-loaded', { detail: { day } }));
     setStatus('rendering…');
     render();
-    // Frame the bbox for first load
-    map.fitBounds([[day.bbox[0], day.bbox[1]], [day.bbox[2], day.bbox[3]]], { padding: 60, duration: 0 });
+    // Frame the country, not the per-day data bbox (see THAILAND_BBOX comment).
+    map.fitBounds([[THAILAND_BBOX[0], THAILAND_BBOX[1]], [THAILAND_BBOX[2], THAILAND_BBOX[3]]], { padding: 40, duration: 0 });
     setStatus('idle');
   } catch (e) {
     console.error(e);
