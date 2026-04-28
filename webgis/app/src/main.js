@@ -24,7 +24,7 @@ const state = {
     dateYmd: null,
     tStartUnix: 0,
     tEndUnix: 0,
-    layers: { points: true, heatmap: false, heatmapAvgSpeed: false, hexagon: false, trips: true },
+    layers: { points: true, heatmap: false, heatmapAvgSpeed: false, hexagon: false, headingHex: false, trips: true },
     colorBy: 'speed',
     pointSize: 3,
     onlyGps: true,
@@ -207,6 +207,11 @@ function updateLegend() {
     html += `<div class="legend-row"><span style="color:#ffb84e">● for-hire on</span><span style="color:#4ea3ff">● off</span></div>`;
   } else if (mode === 'engine') {
     html += `<div class="legend-row"><span style="color:#6eff8c">● engine on</span><span style="color:#c85050">● off</span></div>`;
+  }
+  if (state.ui.layers.headingHex) {
+    html += `<div class="muted" style="margin-top:6px">Hex avg heading</div>
+             <div class="legend-bar" style="background:conic-gradient(from 0deg,#ff4040,#ff9040,#ffe040,#c0f040,#40f040,#40f090,#40e0f0,#4090f0,#4040f0,#9040f0,#f040f0,#f04090,#ff4040)"></div>
+             <div class="legend-row"><span>N</span><span>E</span><span>S</span><span>W</span></div>`;
   }
   el.innerHTML = html;
 }

@@ -40,8 +40,8 @@ export function buildLayers(state) {
     }));
   }
 
-  if (ui.layers.heatmap || ui.layers.heatmapAvgSpeed || ui.layers.hexagon) {
-    const { positions: visiblePositions, speeds: visibleSpeeds } =
+  if (ui.layers.heatmap || ui.layers.heatmapAvgSpeed || ui.layers.hexagon || ui.layers.headingHex) {
+    const { positions: visiblePositions, speeds: visibleSpeeds, headings: visibleHeadings } =
       filterPositionsAndSpeeds(day, filterValues, tStart, tEnd);
     if (ui.layers.heatmap && visiblePositions.length >= 2) {
       layers.push(new HeatmapLayer({
@@ -87,12 +87,39 @@ export function buildLayers(state) {
         id: 'hex',
         data: sampled,
         getPosition: (d) => d,
-        radius: 250,
-        elevationScale: 8,
-        extruded: true,
-        coverage: 0.9,
+        radius: 750,
+        extruded: false,
+        coverage: 0.95,
         colorRange: HEX_COLORS,
-        opacity: 0.85,
+        opacity: 0.75,
+      }));
+    }
+    if (ui.layers.headingHex && visibleHeadings && visiblePositions.length >= 2) {
+      // Per-cell color = circular mean of headings (degrees, 0=N CW). Plain
+      // arithmetic mean would be wrong at the wrap-around (mean(350°,10°)
+      // should be 0°, not 180°), so we average unit vectors and atan2.
+      const sampled = subsamplePositionsWithHeading(visiblePositions, visibleHeadings, 200000);
+      layers.push(new HexagonLayer({
+        id: 'hex-heading',
+        data: sampled,
+        getPosition: (d) => d,
+        getColorValue: (pts) => {
+          let sx = 0, sy = 0;
+          for (let i = 0; i < pts.length; i++) {
+            const r = pts[i][2] * Math.PI / 180;
+            sx += Math.cos(r);
+            sy += Math.sin(r);
+          }
+          let deg = Math.atan2(sy, sx) * 180 / Math.PI;
+          if (deg < 0) deg += 360;
+          return deg;
+        },
+        radius: 750,
+        extruded: false,
+        coverage: 0.95,
+        colorDomain: [0, 360],
+        colorRange: HEADING_HEX_COLORS,
+        opacity: 0.75,
       }));
     }
   }
@@ -189,9 +216,10 @@ export function buildFilterValues(day, opts, out) {
   return arr;
 }
 
-// Extract flat typed arrays of [lon,lat,...] and [speed,...] for records that
-// satisfy the current time window + filter values. Speed is kept alongside so
-// the avg-speed heatmap can use it as `getWeight` without a second pass.
+// Extract flat typed arrays of [lon,lat,...], [speed,...] and [heading,...]
+// for records that satisfy the current time window + filter values. Speed and
+// heading are kept alongside so per-cell aggregation layers can use them as
+// `getWeight` / for circular mean without a second pass.
 function filterPositionsAndSpeeds(day, filterValues, tStart, tEnd) {
   const { count, positionsView, u8View } = day;
   let n = 0;
@@ -202,7 +230,8 @@ function filterPositionsAndSpeeds(day, filterValues, tStart, tEnd) {
   }
   const positions = new Float32Array(n * 2);
   const speeds    = new Float32Array(n);
-  let k = 0, ks = 0;
+  const headings  = new Float32Array(n);
+  let k = 0, ks = 0, kh = 0;
   for (let i = 0; i < count; i++) {
     const t = filterValues[i * 2];
     const p = filterValues[i * 2 + 1];
@@ -210,22 +239,53 @@ function filterPositionsAndSpeeds(day, filterValues, tStart, tEnd) {
     positions[k++] = positionsView[i * 5];
     positions[k++] = positionsView[i * 5 + 1];
     speeds[ks++]   = u8View[i * RECORD_SIZE + 12];
+    headings[kh++] = u8View[i * RECORD_SIZE + 13] * 2; // stored as deg/2, restore deg
   }
-  return { positions, speeds };
+  return { positions, speeds, headings };
 }
 
 // Take every Nth record so the array tops out at ~target points.
-// HexagonLayer accepts an array of [lon, lat] pairs.
+// HexagonLayer accepts an array of [lon, lat] pairs. Two off-screen anchors
+// pin the auto-derived grid origin so cells don't drift across renders (see
+// subsamplePositionsWithHeading for the motivation).
+const POS_HEX_ANCHORS = [
+  [88.0,  -8.0],
+  [118.0, 32.0],
+];
 function subsamplePositions(positionsFlat, target) {
   const n = positionsFlat.length / 2;
-  if (n === 0) return [];
-  const step = Math.max(1, Math.floor(n / target));
-  const out = new Array(Math.ceil(n / step));
-  let k = 0;
-  for (let i = 0; i < n; i += step) {
-    out[k++] = [positionsFlat[i * 2], positionsFlat[i * 2 + 1]];
+  const out = [];
+  if (n > 0) {
+    const step = Math.max(1, Math.floor(n / target));
+    for (let i = 0; i < n; i += step) {
+      out.push([positionsFlat[i * 2], positionsFlat[i * 2 + 1]]);
+    }
   }
-  return out.slice(0, k);
+  out.push(POS_HEX_ANCHORS[0], POS_HEX_ANCHORS[1]);
+  return out;
+}
+
+// Same idea but keeps the heading as the third element so the heading-hex
+// layer's getColorValue can compute a per-cell circular mean. Two corner
+// anchors are appended so the HexagonLayer's auto-derived grid origin
+// stays put even as the time-window filter changes the input extent —
+// otherwise every cell visibly shifts when scrubbing the slider. Anchors
+// are placed well outside Thailand so the two stray cells stay off-screen.
+const HEADING_HEX_ANCHORS = [
+  [88.0,  -8.0, 0],
+  [118.0, 32.0, 0],
+];
+function subsamplePositionsWithHeading(positionsFlat, headings, target) {
+  const n = positionsFlat.length / 2;
+  const out = [];
+  if (n > 0) {
+    const step = Math.max(1, Math.floor(n / target));
+    for (let i = 0; i < n; i += step) {
+      out.push([positionsFlat[i * 2], positionsFlat[i * 2 + 1], headings[i]]);
+    }
+  }
+  out.push(HEADING_HEX_ANCHORS[0], HEADING_HEX_ANCHORS[1]);
+  return out;
 }
 
 const HEATMAP_COLORS = [
@@ -254,4 +314,22 @@ const HEX_COLORS = [
   [200, 240, 120],
   [255, 200, 80],
   [255, 100, 60],
+];
+
+// Cyclic hue wheel for the heading-hex layer. 12 stops × 30° each. First and
+// last colors are intentionally close so the wrap-around at 360°/0° doesn't
+// flash a discordant color.
+const HEADING_HEX_COLORS = [
+  [255,  64,  64],   //   0° N    red
+  [255, 144,  64],   //  30°      orange
+  [255, 224,  64],   //  60°      yellow
+  [192, 240,  64],   //  90° E    yellow-green
+  [ 64, 240,  64],   // 120°      green
+  [ 64, 240, 144],   // 150°      cyan-green
+  [ 64, 224, 240],   // 180° S    cyan
+  [ 64, 144, 240],   // 210°      azure
+  [ 64,  64, 240],   // 240°      blue
+  [144,  64, 240],   // 270° W    violet
+  [240,  64, 240],   // 300°      magenta
+  [240,  64, 144],   // 330°      pink
 ];

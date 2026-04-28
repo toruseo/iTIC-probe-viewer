@@ -19,6 +19,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   $('lyr-heatmap').checked     = state.ui.layers.heatmap;
   $('lyr-heatmap-avg').checked = state.ui.layers.heatmapAvgSpeed;
   $('lyr-hexagon').checked     = state.ui.layers.hexagon;
+  $('lyr-heading-hex').checked = state.ui.layers.headingHex;
   $('lyr-trips').checked       = state.ui.layers.trips;
   $('f-gps').checked        = state.ui.onlyGps;
   $('f-moving').checked     = state.ui.onlyMoving;
@@ -206,6 +207,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   bind('lyr-heatmap',     () => state.ui.layers.heatmap         = $('lyr-heatmap').checked);
   bind('lyr-heatmap-avg', () => state.ui.layers.heatmapAvgSpeed = $('lyr-heatmap-avg').checked);
   bind('lyr-hexagon',     () => state.ui.layers.hexagon         = $('lyr-hexagon').checked);
+  bind('lyr-heading-hex', () => state.ui.layers.headingHex      = $('lyr-heading-hex').checked);
   bind('lyr-trips',       () => state.ui.layers.trips           = $('lyr-trips').checked);
 
   // ----- Color by -----
