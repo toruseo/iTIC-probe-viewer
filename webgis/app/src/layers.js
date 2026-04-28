@@ -52,9 +52,9 @@ export function buildLayers(state) {
             getPosition: { value: visiblePositions, size: 2 },
           },
         },
-        radiusPixels: 30,
-        intensity: 1,
-        threshold: 0.04,
+        radiusPixels: 60,
+        intensity: 5,
+        threshold: 0.001,
         aggregation: 'SUM',
         colorRange: HEATMAP_COLORS,
       }));

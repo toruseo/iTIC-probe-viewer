@@ -17,7 +17,8 @@
 //   off 12 u32 date_yyyymmdd
 //   off 16 u32 t_min_unix
 //   off 20 u32 t_max_unix
-//   off 24 u32 vehicle_count_global
+//   off 24 u32 unique_vehicles_today  (distinct vids appearing in this day's
+//                                      surviving records, post park filter)
 //   off 28 f32 min_lon
 //   off 32 f32 min_lat
 //   off 36 f32 max_lon
@@ -43,8 +44,19 @@ const OUT_DIR = resolve(process.argv[3] || '../app/public/data');
 const TMP_DIR = resolve(process.env.TMP_EXTRACT_DIR || './.tmp');
 
 // Which dates to extract. Override with `DATES=20250101,20250115,...`
-// Default = the bundled demo days the repo ships preprocessed.
-const DEFAULT_DATES = [20250101, 20250201, 20250919];
+// Default = the bundled demo days the repo ships preprocessed:
+// mid-September Wednesday + the following Sunday for each year 2017–2025.
+const DEFAULT_DATES = [
+  20170913, 20170917,
+  20180912, 20180916,
+  20190918, 20190922,
+  20200916, 20200920,
+  20210915, 20210919,
+  20220914, 20220918,
+  20230913, 20230917,
+  20240918, 20240922,
+  20250917, 20250921,
+];
 
 // GNU tar on Windows treats `C:\...` as a remote host unless --force-local is
 // passed. macOS BSD tar lacks the flag but doesn't need it (POSIX paths).
@@ -71,6 +83,13 @@ const SEVEN_ZIP = find7z();
 
 const RECORD_SIZE = 20;
 const HEADER_SIZE = 64;
+
+// Park-stop filter: drop runs of consecutive zero-speed records (per vehicle,
+// time-sorted) whose span >= STOP_SEC. Short stops (e.g. red lights) are kept.
+// Roughly ~70% of raw records have speed=0; this is the main bytes-on-wire lever.
+// PARK_FILTER=0 disables; STOP_SEC overrides the 600s default.
+const PARK_FILTER = !process.env.PARK_FILTER || process.env.PARK_FILTER !== '0';
+const STOP_SEC = +(process.env.STOP_SEC || 600);
 
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -119,13 +138,69 @@ async function extractArchive(archivePath, destParent) {
   }
 }
 
+// Mark records belonging to a long zero-speed run (per vehicle, time-sorted)
+// for removal. Returns a Uint8Array(count) where 1 means drop.
+// Memory: ~5*count bytes (indices + flags) + 8*vehicleCount.
+function markParkedRuns(buf, count, vehicleCount, stopSec) {
+  const drop = new Uint8Array(count);
+  if (count === 0 || vehicleCount === 0) return { drop, droppedCount: 0 };
+
+  // Bucket records by vid via prefix-sum so each vehicle's records sit
+  // contiguously in `indicesByVid`. Avoids per-vehicle JS arrays (~256 MB
+  // overhead for 4M records) — typed-array buckets are ~16 MB total.
+  const vidCounts = new Uint32Array(vehicleCount);
+  for (let i = 0; i < count; i++) vidCounts[buf.readUInt32LE(i * RECORD_SIZE + 16)]++;
+  const vidStart = new Uint32Array(vehicleCount + 1);
+  for (let v = 0; v < vehicleCount; v++) vidStart[v + 1] = vidStart[v] + vidCounts[v];
+  const indicesByVid = new Uint32Array(count);
+  const cursor = new Uint32Array(vehicleCount);
+  for (let i = 0; i < count; i++) {
+    const vid = buf.readUInt32LE(i * RECORD_SIZE + 16);
+    indicesByVid[vidStart[vid] + cursor[vid]++] = i;
+  }
+
+  // For each vehicle: in-place sort its index slice by t, then walk identifying
+  // contiguous zero-speed runs. A run whose span (last_t - first_t) >= stopSec
+  // is parking, not a traffic stop — drop every record in it.
+  const cmp = (a, b) => buf.readUInt32LE(a * RECORD_SIZE + 8) - buf.readUInt32LE(b * RECORD_SIZE + 8);
+  let droppedCount = 0;
+  for (let v = 0; v < vehicleCount; v++) {
+    const start = vidStart[v];
+    const end = vidStart[v + 1];
+    if (start === end) continue;
+    const slice = indicesByVid.subarray(start, end);
+    slice.sort(cmp);
+
+    let runStart = -1;
+    let runStartT = 0;
+    let runEndT = 0;
+    for (let k = 0; k < slice.length; k++) {
+      const off = slice[k] * RECORD_SIZE;
+      const isZero = buf.readUInt8(off + 12) === 0;
+      if (isZero) {
+        const t = buf.readUInt32LE(off + 8);
+        if (runStart === -1) { runStart = k; runStartT = t; }
+        runEndT = t;
+      } else if (runStart !== -1) {
+        if (runEndT - runStartT >= stopSec) {
+          for (let m = runStart; m < k; m++) { drop[slice[m]] = 1; droppedCount++; }
+        }
+        runStart = -1;
+      }
+    }
+    if (runStart !== -1 && runEndT - runStartT >= stopSec) {
+      for (let m = runStart; m < slice.length; m++) { drop[slice[m]] = 1; droppedCount++; }
+    }
+  }
+
+  return { drop, droppedCount };
+}
+
 async function processFile(inputStream, dateYmd) {
   const t0 = Date.now();
   let cap = 1 << 20;
   let buf = Buffer.alloc(cap * RECORD_SIZE);
   let count = 0;
-  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
-  let tMin = 0xFFFFFFFF, tMax = 0;
   let lineNo = 0, skipped = 0;
 
   // Filter out stale/cached probes whose timestamp falls far outside the filename's date.
@@ -191,14 +266,56 @@ async function processFile(inputStream, dateYmd) {
     buf.writeUInt32LE(vid >>> 0, off + 16);
     count++;
 
+    if ((count & 0x7FFFF) === 0) process.stdout.write('.');
+  }
+
+  // Park filter: drop long zero-speed runs in place. bbox/t bounds are
+  // recomputed below from the surviving records so the header reflects what
+  // actually ships, not the pre-filter extent.
+  const rawCount = count;
+  let droppedParked = 0;
+  if (PARK_FILTER) {
+    const tFilter = Date.now();
+    const { drop, droppedCount } = markParkedRuns(buf, count, vehicleDict.size, STOP_SEC);
+    droppedParked = droppedCount;
+    let writeIdx = 0;
+    for (let i = 0; i < count; i++) {
+      if (drop[i]) continue;
+      if (writeIdx !== i) {
+        buf.copy(buf, writeIdx * RECORD_SIZE, i * RECORD_SIZE, (i + 1) * RECORD_SIZE);
+      }
+      writeIdx++;
+    }
+    count = writeIdx;
+    process.stdout.write(`[park ${((Date.now() - tFilter) / 1000).toFixed(1)}s drop=${droppedCount.toLocaleString()}]`);
+  }
+
+  // Recompute bbox + t bounds from the (possibly filtered) records.
+  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+  let tMin = 0xFFFFFFFF, tMax = 0;
+  for (let i = 0; i < count; i++) {
+    const off = i * RECORD_SIZE;
+    const lon = buf.readFloatLE(off);
+    const lat = buf.readFloatLE(off + 4);
+    const t = buf.readUInt32LE(off + 8);
     if (lon < minLon) minLon = lon;
     if (lat < minLat) minLat = lat;
     if (lon > maxLon) maxLon = lon;
     if (lat > maxLat) maxLat = lat;
-    if (tUnix < tMin) tMin = tUnix;
-    if (tUnix > tMax) tMax = tUnix;
+    if (t < tMin) tMin = t;
+    if (t > tMax) tMax = t;
+  }
+  if (count === 0) { minLon = minLat = maxLon = maxLat = 0; tMin = tMax = 0; }
 
-    if ((count & 0x7FFFF) === 0) process.stdout.write('.');
+  // Per-day unique vid count (post filter). Earlier we wrote the cumulative
+  // global dict size here, which gave a number that drifted with processing
+  // order and matched neither the day's nor the run's totals — confusing in
+  // the UI's "unique vehicles" stat. The per-day count is what users expect.
+  const seenVid = new Uint8Array(vehicleDict.size);
+  let uniqueVehiclesToday = 0;
+  for (let i = 0; i < count; i++) {
+    const vid = buf.readUInt32LE(i * RECORD_SIZE + 16);
+    if (!seenVid[vid]) { seenVid[vid] = 1; uniqueVehiclesToday++; }
   }
 
   const header = Buffer.alloc(HEADER_SIZE);
@@ -208,7 +325,7 @@ async function processFile(inputStream, dateYmd) {
   header.writeUInt32LE(dateYmd >>> 0, 12);
   header.writeUInt32LE(tMin, 16);
   header.writeUInt32LE(tMax, 20);
-  header.writeUInt32LE(vehicleDict.size, 24);
+  header.writeUInt32LE(uniqueVehiclesToday, 24);
   header.writeFloatLE(minLon, 28);
   header.writeFloatLE(minLat, 32);
   header.writeFloatLE(maxLon, 36);
@@ -227,6 +344,9 @@ async function processFile(inputStream, dateYmd) {
   return {
     date: dateYmd,
     count,
+    raw_count: rawCount,
+    dropped_parked: droppedParked,
+    unique_vehicles: uniqueVehiclesToday,
     skipped,
     line_count: lineNo,
     t_min: tMin,

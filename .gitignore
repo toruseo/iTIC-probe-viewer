@@ -92,8 +92,6 @@ Thumbs.db
 
 # original data (too huge)
 PROBE_DATA_iTIC/PROBE-*.tar.bz2
-# extracted CSV (regenerate via tar xjf if needed)
-PROBE-*/
 
 # Vite build output
 webgis/app/dist/
@@ -106,3 +104,7 @@ webgis/preprocess/.tmp/
 
 # may contain personal info
 .claude/*
+
+# vscode
+iTIC-probe-viewer.code-workspace
+.VSCodeCounter/*

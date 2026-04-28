@@ -28,7 +28,7 @@ const state = {
     colorBy: 'speed',
     pointSize: 3,
     onlyGps: true,
-    onlyMoving: true,
+    onlyMoving: false,
     speedMax: 100,
   },
   colors: null,
