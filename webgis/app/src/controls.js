@@ -29,10 +29,15 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
 
   // ----- Day selector -----
   const daySelect = $('day-select');
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   for (const d of state.meta.days) {
     const opt = document.createElement('option');
     opt.value = d.date;
-    opt.textContent = `${d.date} (${(d.count/1e6).toFixed(2)}M)`;
+    const yyyy = Math.floor(d.date / 10000);
+    const mm   = Math.floor((d.date / 100) % 100);
+    const dd   = d.date % 100;
+    const dow  = DOW[new Date(Date.UTC(yyyy, mm - 1, dd)).getUTCDay()];
+    opt.textContent = `${d.date} ${dow} (${(d.count/1e6).toFixed(2)}M)`;
     daySelect.appendChild(opt);
   }
   daySelect.addEventListener('change', () => {
