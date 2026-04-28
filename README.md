@@ -64,5 +64,6 @@ This is also part of the JST/JICA [SATREPS](https://www.jst.go.jp/global/) [3DTr
 
 ## License
 
+- Developed by [Toru Seo](https://toruseo.jp/), [Institute of Science Tokyo](https://seo.cv.ens.titech.ac.jp/en/index.html)
 - Source code: MIT
 - Data: © iTIC Foundation, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — see `PROBE_DATA_iTIC/README_ITIC.TXT`

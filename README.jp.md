@@ -65,5 +65,6 @@ DATES=20250101,20250115,20250201 node preprocess.mjs
 
 ## ライセンス
 
+- 開発者：[東京科学大学](https://seo.cv.ens.titech.ac.jp/) [瀬尾亨](https://toruseo.jp/index_jp.html)
 - ソースコード: MIT
 - データ: © iTIC Foundation, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — `PROBE_DATA_iTIC/README_ITIC.TXT` 参照
