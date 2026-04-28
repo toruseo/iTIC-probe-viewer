@@ -51,9 +51,11 @@ cd webgis/preprocess
 DATES=20250101,20250115,20250201 node preprocess.mjs
 ```
 
-## その他
+## 謝辞
 
-[SATREPS](https://www.jst.go.jp/global/) [3DTraffic](https://www.3dtraffic.t.u-tokyo.ac.jp/)プロジェクトの一環です．
+オープンデータを公開していただいた[iTIC](https://www.iticfoundation.org/)に感謝いたします．
+
+また，これはJST/JICAの[SATREPS](https://www.jst.go.jp/global/) [3DTraffic](https://www.3dtraffic.t.u-tokyo.ac.jp/)プロジェクトの一環であり，研究助成に感謝いたします．
 
 ## ライセンス
 
