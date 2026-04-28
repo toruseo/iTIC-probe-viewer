@@ -18,11 +18,10 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   $('lyr-hexagon').checked     = state.ui.layers.hexagon;
   $('lyr-heading-hex').checked = state.ui.layers.headingHex;
   $('lyr-trips').checked       = state.ui.layers.trips;
-  $('f-gps').checked        = state.ui.onlyGps;
   $('f-moving').checked     = state.ui.onlyMoving;
+  $('f-no-highway').checked = state.ui.excludeHighway;
   $('f-speed-max').value    = String(state.ui.speedMax);
   $('f-speed-max-v').textContent = String(state.ui.speedMax);
-  $('point-size').value     = String(state.ui.pointSize);
   $('color-by').value       = state.ui.colorBy;
 
   // ----- 日付セレクタ -----
@@ -212,19 +211,15 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     onUiChanged('colorBy');
   });
 
-  $('point-size').addEventListener('input', () => {
-    state.ui.pointSize = +$('point-size').value;
-    render();
-  });
-
   // ----- フィルタ -----
+  // GPS validは常時オン(state.ui.onlyGpsはtrue固定でUIから外している)。
   const filterChange = () => {
-    state.ui.onlyGps    = $('f-gps').checked;
-    state.ui.onlyMoving = $('f-moving').checked;
+    state.ui.onlyMoving     = $('f-moving').checked;
+    state.ui.excludeHighway = $('f-no-highway').checked;
     onUiChanged('filter');
   };
-  $('f-gps').addEventListener('change', filterChange);
   $('f-moving').addEventListener('change', filterChange);
+  $('f-no-highway').addEventListener('change', filterChange);
 
   // ----- 速度色スケールの上限(フィルタではなく、速度グラデーションの再スケールのみ) -----
   $('f-speed-max').addEventListener('input', () => {

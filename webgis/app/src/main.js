@@ -22,9 +22,10 @@ const state = {
     tEndUnix: 0,
     layers: { points: true, heatmap: false, heatmapAvgSpeed: false, hexagon: false, headingHex: false, trips: true },
     colorBy: 'speed',
-    pointSize: 3,
-    onlyGps: true,
+    pointSize: 3,            // GPS常時有効と同じく、UIから外しただけで内部値は維持。
+    onlyGps: true,           // 常時有効。チェックボックスは廃止した。
     onlyMoving: false,
+    excludeHighway: false,   // checked時はspeed > 60のレコードを表示から除く(高速道路除外の近似)
     speedMax: 100,
   },
   colors: null,
@@ -59,7 +60,7 @@ const map = new maplibregl.Map({
     compact: true,
     customAttribution: [
       'Data © <a href="https://www.iticfoundation.org/" target="_blank" rel="noopener">iTIC</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>',
-      '<a href="https://github.com/toruseo/iTIC-probe-viewer" target="_blank" rel="noopener">Source on GitHub</a>',
+      'By <a href="https://toruseo.jp/" target="_blank" rel="noopener">Toru Seo</a>. Source: <a href="https://github.com/toruseo/iTIC-probe-viewer" target="_blank" rel="noopener">GitHub</a>',
     ],
   },
 });
@@ -196,13 +197,8 @@ function updateLegend() {
     // 赤(低速)→中間→青(高速)。binary.jsのbuildColors()と一致させる。
     html += `<div class="legend-bar" style="background:linear-gradient(90deg,#e62800,#73dc78,#0028f0)"></div>
              <div class="legend-row"><span>0</span><span>${state.ui.speedMax} km/h</span></div>`;
-  } else if (mode === 'heading') {
-    html += `<div class="legend-bar" style="background:linear-gradient(90deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)"></div>
-             <div class="legend-row"><span>N</span><span>E</span><span>S</span><span>W</span><span>N</span></div>`;
   } else if (mode === 'forhire') {
     html += `<div class="legend-row"><span style="color:#ffb84e">● for-hire on</span><span style="color:#4ea3ff">● off</span></div>`;
-  } else if (mode === 'engine') {
-    html += `<div class="legend-row"><span style="color:#6eff8c">● engine on</span><span style="color:#c85050">● off</span></div>`;
   }
   if (state.ui.layers.heatmap || state.ui.layers.hexagon) {
     // Inferno palette, mirrors HEATMAP_COLORS / HEX_COLORS in layers.js.

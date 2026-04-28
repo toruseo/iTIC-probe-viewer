@@ -83,15 +83,8 @@
         <h3>Color by</h3>
         <select id="color-by">
           <option value="speed">Speed</option>
-          <option value="heading">Heading</option>
           <option value="forhire">For-hire light</option>
-          <option value="engine">Engine ACC</option>
         </select>
-        <div class="row">
-          <label class="muted">point size
-            <input id="point-size" type="range" min="1" max="20" value="3" step="0.5">
-          </label>
-        </div>
         <div class="row">
           <label class="muted">speed color max
             <input id="f-speed-max" type="range" min="5" max="200" value="100" step="5">
@@ -102,8 +95,8 @@
 
       <section class="panel-section">
         <h3>Filter</h3>
-        <label><input type="checkbox" id="f-gps" checked> only GPS valid</label>
         <label><input type="checkbox" id="f-moving"> only speed &gt; 0</label>
+        <label><input type="checkbox" id="f-no-highway"> speed &le; 60 km/h (&simeq; exclude highway)</label>
       </section>
 
       <section class="panel-section" id="vehicle-section">

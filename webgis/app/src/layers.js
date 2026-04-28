@@ -195,6 +195,7 @@ export function buildFilterValues(day, opts, out) {
   const { count, u8View, times } = day;
   const onlyGps = !!opts.onlyGps;
   const onlyMoving = !!opts.onlyMoving;
+  const excludeHighway = !!opts.excludeHighway;
   const arr = out && out.length === count * 2 ? out : new Float32Array(count * 2);
   for (let i = 0; i < count; i++) {
     const off = i * RECORD_SIZE;
@@ -203,6 +204,7 @@ export function buildFilterValues(day, opts, out) {
     let pass = 1;
     if (onlyGps && !(fl & 4)) pass = 0;
     else if (onlyMoving && sp === 0) pass = 0;
+    else if (excludeHighway && sp > 60) pass = 0;
     arr[i * 2] = times[i];
     arr[i * 2 + 1] = pass;
   }
