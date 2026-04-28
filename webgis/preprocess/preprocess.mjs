@@ -85,11 +85,12 @@ const RECORD_SIZE = 20;
 const HEADER_SIZE = 64;
 
 // Park-stop filter: drop runs of consecutive zero-speed records (per vehicle,
-// time-sorted) whose span >= STOP_SEC. Short stops (e.g. red lights) are kept.
-// Roughly ~70% of raw records have speed=0; this is the main bytes-on-wire lever.
-// PARK_FILTER=0 disables; STOP_SEC overrides the 600s default.
+// time-sorted) whose span >= STOP_SEC. Short stops (e.g. red lights, brief
+// idling at a customer) are kept. Roughly ~70% of raw records have speed=0;
+// this is the main bytes-on-wire lever.
+// PARK_FILTER=0 disables; STOP_SEC overrides the 1200s (20 min) default.
 const PARK_FILTER = !process.env.PARK_FILTER || process.env.PARK_FILTER !== '0';
-const STOP_SEC = +(process.env.STOP_SEC || 600);
+const STOP_SEC = +(process.env.STOP_SEC || 1200);
 
 mkdirSync(OUT_DIR, { recursive: true });
 
