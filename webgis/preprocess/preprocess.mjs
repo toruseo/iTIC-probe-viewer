@@ -1,29 +1,28 @@
-// CSV (iTIC probe data) -> per-day packed binary for the deck.gl frontend.
+// CSV(iTIC probeデータ)からdeck.glフロントエンド用の日次パック済みバイナリを作る。
 //
-// Record layout (20 bytes, little-endian):
+// レコードレイアウト(20バイト、リトルエンディアン):
 //   off 0  f32 lon
 //   off 4  f32 lat
-//   off 8  u32 t_unix         (UTC seconds; source timestamps are GMT+7)
-//   off 12 u8  speed_kmh      (clamped 0..255)
-//   off 13 u8  heading_div2   (heading_deg/2, 0..180)
-//   off 14 u8  flags          (bit0 for_hire, bit1 engine_acc, bit2 gps_valid)
+//   off 8  u32 t_unix         (UTC秒。元データのタイムスタンプはGMT+7)
+//   off 12 u8  speed_kmh      (0..255にクランプ)
+//   off 13 u8  heading_div2   (heading_deg/2、0..180)
+//   off 14 u8  flags          (bit0 for_hire、bit1 engine_acc、bit2 gps_valid)
 //   off 15 u8  _pad
-//   off 16 u32 vid            (index into vehicles.json)
+//   off 16 u32 vid            (vehicles.jsonへのインデックス)
 //
-// Header (64 bytes, little-endian):
+// ヘッダ(64バイト、リトルエンディアン):
 //   off 0  char[4] 'PROB'
 //   off 4  u32 version=1
 //   off 8  u32 count
 //   off 12 u32 date_yyyymmdd
 //   off 16 u32 t_min_unix
 //   off 20 u32 t_max_unix
-//   off 24 u32 unique_vehicles_today  (distinct vids appearing in this day's
-//                                      surviving records, post park filter)
+//   off 24 u32 unique_vehicles_today  (パーキングフィルタ後の当日生存レコードに現れるユニークvid数)
 //   off 28 f32 min_lon
 //   off 32 f32 min_lat
 //   off 36 f32 max_lon
 //   off 40 f32 max_lat
-//   off 44 _reserved (20 bytes)
+//   off 44 _reserved (20バイト)
 
 import { createReadStream, createWriteStream, statSync, existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -31,21 +30,18 @@ import { createInterface } from 'node:readline';
 import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
 
-// Source archives (PROBE-YYYYMM.tar.bz2) live in PROBE_DATA_iTIC/.
-// To process a day, we extract the *whole* monthly archive once into TMP_DIR,
-// then read individual days off disk. The earlier streaming approach
-// (`tar -xjOf … | node`) backpressured bzip2 against Node's readline and
-// burned ~17 min per day; full extraction completes the bzip2 work in one
-// CPU-bound pass and per-day reads are sub-second.
+// 元アーカイブ(PROBE-YYYYMM.tar.bz2)はPROBE_DATA_iTIC/に置く。
+// 日次処理では、月単位アーカイブを*まるごと*一度TMP_DIRに展開してから、各日のCSVをディスクから読む。
+// 以前のストリーミング方式(`tar -xjOf … | node`)はNodeのreadlineがbzip2に背圧をかけ、1日あたり約17分かかっていた。
+// 全展開ならbzip2の処理がCPUバウンドの1パスで終わり、各日の読み込みは1秒未満になる。
 //
-// TMP_DIR is wiped after each archive's days are done, unless KEEP_TMP=1.
+// TMP_DIRはアーカイブごとの日処理が終わった時点で削除する(KEEP_TMP=1指定時を除く)。
 const SRC_DIR = resolve(process.argv[2] || '../../PROBE_DATA_iTIC');
 const OUT_DIR = resolve(process.argv[3] || '../app/public/data');
 const TMP_DIR = resolve(process.env.TMP_EXTRACT_DIR || './.tmp');
 
-// Which dates to extract. Override with `DATES=20250101,20250115,...`
-// Default = the bundled demo days the repo ships preprocessed:
-// mid-September Wednesday + the following Sunday for each year 2017–2025.
+// 抽出対象の日付。`DATES=20250101,20250115,...`で上書きできる。
+// デフォルトはリポジトリが事前処理済みで同梱しているデモ日付:2017〜2025年の各年について9月中旬の水曜日と、その直後の日曜日。
 const DEFAULT_DATES = [
   20170913, 20170917,
   20180912, 20180916,
@@ -58,15 +54,11 @@ const DEFAULT_DATES = [
   20250917, 20250921,
 ];
 
-// GNU tar on Windows treats `C:\...` as a remote host unless --force-local is
-// passed. macOS BSD tar lacks the flag but doesn't need it (POSIX paths).
+// Windows上のGNU tarは--force-localを付けないと`C:\...`をリモートホスト扱いする。macOSのBSD tarにはこのフラグが無いが、POSIXパスでは必要ない。
 const TAR_LOCAL_FLAGS = platform() === 'win32' ? ['--force-local'] : [];
 
-// On Windows, the bundled tar.exe's bzip2 implementation is dramatically
-// slower than 7-Zip (observed ~25× difference: 1.4 GB tar.bz2 took ~25 min
-// via tar.exe vs ~1 min via 7z.exe). When 7z.exe is available we route
-// extraction through it; everywhere else (POSIX) we use GNU tar directly,
-// which is fine.
+// Windows同梱のtar.exeのbzip2実装は7-Zipと比べて極端に遅い(実測で約25倍差。1.4GBのtar.bz2でtar.exe経由が約25分、7z.exe経由が約1分)。
+// 7z.exeが見つかればそれを使い、それ以外(POSIX)はGNU tarで直接処理する(こちらは問題ない)。
 function find7z() {
   if (platform() !== 'win32') return null;
   const env7z = process.env.SEVENZIP_EXE;
@@ -84,11 +76,9 @@ const SEVEN_ZIP = find7z();
 const RECORD_SIZE = 20;
 const HEADER_SIZE = 64;
 
-// Park-stop filter: drop runs of consecutive zero-speed records (per vehicle,
-// time-sorted) whose span >= STOP_SEC. Short stops (e.g. red lights, brief
-// idling at a customer) are kept. Roughly ~70% of raw records have speed=0;
-// this is the main bytes-on-wire lever.
-// PARK_FILTER=0 disables; STOP_SEC overrides the 1200s (20 min) default.
+// 駐車停止フィルタ: 各車両ごとに時刻順に並べたうえで、速度0の連続区間のうち継続時間がSTOP_SEC以上のものを丸ごと落とす。
+// 短い停止(信号待ち、客先での短時間アイドリングなど)は残す。生レコードの約70%はspeed=0なので、ここが転送量を抑える主要な調整箇所。
+// PARK_FILTER=0で無効化、STOP_SECでデフォルト1200秒(20分)を上書きできる。
 const PARK_FILTER = !process.env.PARK_FILTER || process.env.PARK_FILTER !== '0';
 const STOP_SEC = +(process.env.STOP_SEC || 1200);
 
@@ -101,9 +91,8 @@ const getVid = (s) => {
   return v;
 };
 
-// Extract a whole monthly archive into `destParent`. Returns when tar exits
-// successfully; rejects with the captured stderr otherwise. The resulting
-// layout matches the archive: `destParent/PROBE-YYYYMM/YYYYMMDD.csv.out`.
+// 月単位アーカイブを`destParent`に丸ごと展開する。tarが正常終了したら解決し、それ以外はstderrを添えて拒否する。
+// 展開後のレイアウトはアーカイブそのままで、`destParent/PROBE-YYYYMM/YYYYMMDD.csv.out`になる。
 function spawnP(exe, args, opts = {}) {
   return new Promise((res, rej) => {
     const child = spawn(exe, args, { stdio: ['ignore', 'inherit', 'pipe'], ...opts });
@@ -119,10 +108,8 @@ function spawnP(exe, args, opts = {}) {
 
 async function extractArchive(archivePath, destParent) {
   if (SEVEN_ZIP) {
-    // 7z handles .tar.bz2 in two passes: bz2→tar, then untar. Pipe-based
-    // single-pass would also work but Node-level pipe buffering reintroduces
-    // the same throttling issue we just escaped from. Two passes via disk is
-    // ~1 min total for a 1.4 GB archive on this dev box.
+    // 7zは.tar.bz2を2パス(bz2→tar、その後untar)で処理する。パイプ経由の1パスも可能だが、Node側のパイプバッファリングが先ほど避けたのと同じスロットリング問題を再導入してしまう。
+    // ディスクを介した2パスでも、この開発機の1.4GBアーカイブなら合計約1分で済む。
     const tarName = archivePath.split(/[\\/]/).pop().replace(/\.bz2$/i, '');
     const tarPath = join(destParent, tarName);
     await spawnP(SEVEN_ZIP, ['x', archivePath, `-o${destParent}`, '-y']);
@@ -132,23 +119,20 @@ async function extractArchive(archivePath, destParent) {
       rmSync(tarPath, { force: true });
     }
   } else {
-    // POSIX path: GNU tar with built-in bzip2 is fast enough.
-    // cwd avoids tar's `-C C:\…` colon-as-host mis-parse on Windows, but on
-    // POSIX paths there is no colon, so this is a no-op safety measure.
+    // POSIX側: ビルトインbzip2を使ったGNU tarで十分速い。
+    // cwdはWindowsでtarが`-C C:\…`をホスト名と誤解する問題を回避するためのもので、POSIXパスにはコロンがないのでここでは実質無害な安全策。
     await spawnP('tar', [...TAR_LOCAL_FLAGS, '-xjf', archivePath], { cwd: destParent });
   }
 }
 
-// Mark records belonging to a long zero-speed run (per vehicle, time-sorted)
-// for removal. Returns a Uint8Array(count) where 1 means drop.
-// Memory: ~5*count bytes (indices + flags) + 8*vehicleCount.
+// 各車両ごとに時刻順で見たときに、長い速度0連続区間に属するレコードを削除対象としてマークする。戻り値はUint8Array(count)で、1なら削除対象。
+// メモリ: 約5*countバイト(インデックス+フラグ) + 8*vehicleCount。
 function markParkedRuns(buf, count, vehicleCount, stopSec) {
   const drop = new Uint8Array(count);
   if (count === 0 || vehicleCount === 0) return { drop, droppedCount: 0 };
 
-  // Bucket records by vid via prefix-sum so each vehicle's records sit
-  // contiguously in `indicesByVid`. Avoids per-vehicle JS arrays (~256 MB
-  // overhead for 4M records) — typed-array buckets are ~16 MB total.
+  // 接頭和を使ってvidごとにレコードをバケット化し、`indicesByVid`内で各車両のレコードが連続するようにする。
+  // 車両ごとのJS配列を作る方式(400万レコードで約256MBオーバーヘッド)を避ける。型付き配列のバケットなら合計で約16MBに収まる。
   const vidCounts = new Uint32Array(vehicleCount);
   for (let i = 0; i < count; i++) vidCounts[buf.readUInt32LE(i * RECORD_SIZE + 16)]++;
   const vidStart = new Uint32Array(vehicleCount + 1);
@@ -160,9 +144,8 @@ function markParkedRuns(buf, count, vehicleCount, stopSec) {
     indicesByVid[vidStart[vid] + cursor[vid]++] = i;
   }
 
-  // For each vehicle: in-place sort its index slice by t, then walk identifying
-  // contiguous zero-speed runs. A run whose span (last_t - first_t) >= stopSec
-  // is parking, not a traffic stop — drop every record in it.
+  // 車両ごとに、そのインデックススライスをtでインプレースソートし、速度0の連続区間を歩きながら識別する。
+  // 区間の継続時間(last_t - first_t)がstopSec以上なら、それは交通停止ではなく駐車扱いなので、その区間のレコードを全て落とす。
   const cmp = (a, b) => buf.readUInt32LE(a * RECORD_SIZE + 8) - buf.readUInt32LE(b * RECORD_SIZE + 8);
   let droppedCount = 0;
   for (let v = 0; v < vehicleCount; v++) {
@@ -204,8 +187,8 @@ async function processFile(inputStream, dateYmd) {
   let count = 0;
   let lineNo = 0, skipped = 0;
 
-  // Filter out stale/cached probes whose timestamp falls far outside the filename's date.
-  // Window: [date-2d, date+3d] in GMT+7, expressed in UTC unix seconds.
+  // ファイル名の日付から大きく外れたタイムスタンプの古い・キャッシュ済みprobeを除外する。
+  // 許容窓: GMT+7で[date-2日, date+3日]を、UTCのunix秒で表したもの。
   const yy = Math.floor(dateYmd / 10000);
   const mn = Math.floor((dateYmd / 100) % 100);
   const dy = dateYmd % 100;
@@ -263,16 +246,14 @@ async function processFile(inputStream, dateYmd) {
     buf.writeUInt8(speed, off + 12);
     buf.writeUInt8((heading >> 1) & 0xff, off + 13);
     buf.writeUInt8((forHire) | (engineAcc << 1) | (gpsValid << 2), off + 14);
-    // off + 15 left as 0
+    // off + 15 はゼロのまま
     buf.writeUInt32LE(vid >>> 0, off + 16);
     count++;
 
     if ((count & 0x7FFFF) === 0) process.stdout.write('.');
   }
 
-  // Park filter: drop long zero-speed runs in place. bbox/t bounds are
-  // recomputed below from the surviving records so the header reflects what
-  // actually ships, not the pre-filter extent.
+  // 駐車フィルタ: 長い速度0連続区間をインプレースで落とす。bbox/t範囲はこの後で生存レコードから再計算するので、ヘッダはフィルタ前の範囲ではなく実際に出力される内容を反映する。
   const rawCount = count;
   let droppedParked = 0;
   if (PARK_FILTER) {
@@ -291,7 +272,7 @@ async function processFile(inputStream, dateYmd) {
     process.stdout.write(`[park ${((Date.now() - tFilter) / 1000).toFixed(1)}s drop=${droppedCount.toLocaleString()}]`);
   }
 
-  // Recompute bbox + t bounds from the (possibly filtered) records.
+  // (フィルタ後の可能性がある)レコードからbboxとt範囲を再計算する。
   let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
   let tMin = 0xFFFFFFFF, tMax = 0;
   for (let i = 0; i < count; i++) {
@@ -308,10 +289,8 @@ async function processFile(inputStream, dateYmd) {
   }
   if (count === 0) { minLon = minLat = maxLon = maxLat = 0; tMin = tMax = 0; }
 
-  // Per-day unique vid count (post filter). Earlier we wrote the cumulative
-  // global dict size here, which gave a number that drifted with processing
-  // order and matched neither the day's nor the run's totals — confusing in
-  // the UI's "unique vehicles" stat. The per-day count is what users expect.
+  // 日次のユニークvid数(フィルタ後)。以前はここにグローバル辞書の累計サイズを書き込んでいたが、処理順で値がズレるうえに、その日の合計とも実行全体の合計とも一致せず、UIの"unique vehicles"統計で混乱を招いていた。
+  // ユーザが期待するのはあくまで日次のカウント。
   const seenVid = new Uint8Array(vehicleDict.size);
   let uniqueVehiclesToday = 0;
   for (let i = 0; i < count; i++) {
@@ -388,10 +367,8 @@ async function main() {
   const limit = +process.env.LIMIT;
   if (Number.isFinite(limit) && limit > 0) dates = dates.slice(0, limit);
 
-  // APPEND=1 reuses the existing vehicles.json/meta.json so that vid indices
-  // already baked into shipped *.bin files stay valid. Without this flag the
-  // dictionary is built from scratch — fine for a clean rebuild, but it
-  // invalidates every previously-emitted .bin since vid mapping shifts.
+  // APPEND=1にすると既存のvehicles.json/meta.jsonを再利用するので、出荷済みの*.binファイルに焼き込まれたvidインデックスが引き続き有効になる。
+  // このフラグが無い場合は辞書をゼロから組み直す。クリーンリビルドには問題ないが、vidの対応が変わるので過去に生成済みの.binは全て無効になる。
   const append = !!process.env.APPEND && process.env.APPEND !== '0';
   const metaPath = join(OUT_DIR, 'meta.json');
   const vehiclesPath = join(OUT_DIR, 'vehicles.json');
@@ -422,9 +399,8 @@ async function main() {
   console.log(`out    : ${OUT_DIR}`);
   console.log(`dates  : ${dates.join(', ')}${append ? '  (APPEND mode)' : ''}`);
 
-  // Group requested dates by their source archive so we extract each archive
-  // at most once per run. KEEP_TMP=1 leaves the extracted CSVs on disk for
-  // iterative dev re-runs (skip extraction if all needed days are present).
+  // 指定された日付を元アーカイブごとにグループ化して、1回の実行で各アーカイブを最大1度しか展開しないようにする。
+  // KEEP_TMP=1にすると展開済みCSVをディスクに残し、開発時の繰り返し実行で必要日が全て揃っていれば展開をスキップできる。
   const datesByArchive = new Map();
   for (const d of dates) {
     const m = Math.floor(d / 100);
@@ -486,7 +462,7 @@ async function main() {
   if (!keepTmp) {
     try {
       if (readdirSync(TMP_DIR).length === 0) rmSync(TMP_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch { /* 無視 */ }
   }
 
   const vehicles = new Array(vehicleDict.size);

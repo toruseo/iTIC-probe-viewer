@@ -9,17 +9,13 @@ import { drawTimeSeries, drawScatter } from './chart.js';
 
 const BASEMAP_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
-// Initial map fit. We deliberately ignore each day's bbox (from the bin header)
-// because stale/cached probe records occasionally leak coordinates near (0,0)
-// or other rogue origins through the preprocess filter, which would yank the
-// view to a useless extent. A fixed Thailand bbox keeps the first frame sane
-// regardless of which day is loaded.
+// 初期表示の地図フィット範囲。各日のbbox(binヘッダ由来)は意図的に使わない。古い・キャッシュ済みのprobeレコードが時折(0,0)や別の誤った原点を前処理フィルタをすり抜けて漏らすので、その場合に視点が無意味な範囲へ吹っ飛ぶ。タイ全体に固定したbboxにしておけば、どの日を読んでも初回フレームの破綻を避けられる。
 const THAILAND_BBOX = [97.0, 5.5, 106.0, 20.7];
 
 const state = {
   meta: null,
   vehicles: [],
-  day: null,           // current loaded day data
+  day: null,           // 現在読み込んでいる日のデータ
   ui: {
     dateYmd: null,
     tStartUnix: 0,
@@ -39,8 +35,8 @@ const state = {
   playSpeed: 300,
   polygon: {
     mode: 'idle',     // 'idle' | 'drawing'
-    draftRing: [],    // [[lon,lat], ...] while drawing
-    ring: null,       // [[lon,lat], ...] once finished
+    draftRing: [],    // 描画中の[[lon,lat], ...]
+    ring: null,       // 確定後の[[lon,lat], ...]
     series: null,     // { binSec, nBins, count, avgSpeed }
   },
 };
@@ -109,7 +105,7 @@ function onHover(info) {
 }
 
 function onPick(info) {
-  if (state.polygon.mode === 'drawing') return; // map click handler adds vertices
+  if (state.polygon.mode === 'drawing') return; // 描画中のクリックは地図側のハンドラが頂点として処理する
   if (!state.day) return;
   if (!(info && info.layer && info.layer.id === 'points' && info.index >= 0)) return;
   const i = info.index;
@@ -120,7 +116,7 @@ function onPick(info) {
 function selectVehicle(vid) {
   state.selectedVid = vid;
   setStatus(`extracting trip for vid #${vid}…`);
-  // Run async so the UI can update.
+  // 非同期にしてUIの再描画機会を与える。
   setTimeout(() => {
     const path = extractVehiclePath(state.day, vid);
     state.selectedVehiclePath = path;
@@ -197,21 +193,27 @@ function updateLegend() {
   const mode = state.ui.colorBy;
   let html = `<div class="muted">Color: ${mode}</div>`;
   if (mode === 'speed') {
-    // Red (slow) → mid → blue (fast). Mirrors buildColors() in binary.js.
+    // 赤(低速)→中間→青(高速)。binary.jsのbuildColors()と一致させる。
     html += `<div class="legend-bar" style="background:linear-gradient(90deg,#e62800,#73dc78,#0028f0)"></div>
              <div class="legend-row"><span>0</span><span>${state.ui.speedMax} km/h</span></div>`;
   } else if (mode === 'heading') {
-    html += `<div class="legend-bar" style="background:conic-gradient(from 0deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)"></div>
-             <div class="legend-row"><span>N</span><span>E·S·W</span></div>`;
+    html += `<div class="legend-bar" style="background:linear-gradient(90deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)"></div>
+             <div class="legend-row"><span>N</span><span>E</span><span>S</span><span>W</span><span>N</span></div>`;
   } else if (mode === 'forhire') {
     html += `<div class="legend-row"><span style="color:#ffb84e">● for-hire on</span><span style="color:#4ea3ff">● off</span></div>`;
   } else if (mode === 'engine') {
     html += `<div class="legend-row"><span style="color:#6eff8c">● engine on</span><span style="color:#c85050">● off</span></div>`;
   }
+  if (state.ui.layers.heatmap || state.ui.layers.hexagon) {
+    // Inferno palette, mirrors HEATMAP_COLORS / HEX_COLORS in layers.js.
+    html += `<div class="muted" style="margin-top:6px">Count density</div>
+             <div class="legend-bar" style="background:linear-gradient(90deg,#140b34,#50127b,#b63679,#f1605d,#fcae21,#fcffa4)"></div>
+             <div class="legend-row"><span>low</span><span>high</span></div>`;
+  }
   if (state.ui.layers.headingHex) {
     html += `<div class="muted" style="margin-top:6px">Hex avg heading</div>
-             <div class="legend-bar" style="background:conic-gradient(from 0deg,#ff4040,#ff9040,#ffe040,#c0f040,#40f040,#40f090,#40e0f0,#4090f0,#4040f0,#9040f0,#f040f0,#f04090,#ff4040)"></div>
-             <div class="legend-row"><span>N</span><span>E</span><span>S</span><span>W</span></div>`;
+             <div class="legend-bar" style="background:linear-gradient(90deg,#ff4040,#ff9040,#ffe040,#c0f040,#40f040,#40f090,#40e0f0,#4090f0,#4040f0,#9040f0,#f040f0,#f04090,#ff4040)"></div>
+             <div class="legend-row"><span>N</span><span>E</span><span>S</span><span>W</span><span>N</span></div>`;
   }
   el.innerHTML = html;
 }
@@ -246,8 +248,8 @@ function drawPolygonCharts() {
     yMin: 0, yMax: state.ui.speedMax, highlight,
   });
 
-  // MFD: x = count[b], y = count[b] * avgSpeed[b], one point per bin.
-  // Empty bins (count=0 or NaN avg speed) are dropped via NaN.
+  // MFD: x=count[b]、y=count[b]*avgSpeed[b]、1ビンにつき1点。
+  // 空ビン(count=0または平均速度がNaN)はNaNを入れて散布図側で落とす。
   const xs = new Float32Array(s.nBins);
   const ys = new Float32Array(s.nBins);
   for (let b = 0; b < s.nBins; b++) {
@@ -353,11 +355,11 @@ async function selectDay(dateYmd) {
     state.selectedVehiclePath = null;
     document.getElementById('vehicle-info').textContent = 'Click a point to select.';
     recomputePolygonSeries();
-    // Update time slider bounds in the UI (controls module reads state directly)
+    // 時間スライダの範囲を更新する(controlsモジュールは直接stateを参照している)
     document.dispatchEvent(new CustomEvent('day-loaded', { detail: { day } }));
     setStatus('rendering…');
     render();
-    // Frame the country, not the per-day data bbox (see THAILAND_BBOX comment).
+    // 各日のbboxではなく国全体に合わせる(THAILAND_BBOXのコメント参照)。
     map.fitBounds([[THAILAND_BBOX[0], THAILAND_BBOX[1]], [THAILAND_BBOX[2], THAILAND_BBOX[3]]], { padding: 40, duration: 0 });
     setStatus('idle');
   } catch (e) {

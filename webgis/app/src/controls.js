@@ -1,20 +1,17 @@
-// Wires up the DOM controls in index.html with state mutations + render calls.
+// index.htmlのDOMコントロールを、stateの更新とrender呼び出しに繋ぐ層。
 //
-// Time-window UI has two modes:
-//   - 'range'  : slider1 = start offset from tMin, slider2 = end offset
-//   - 'window' : slider1 = start offset from tMin, slider2 = window width
-// Internally we always keep state.ui.tStartUnix / tEndUnix as absolute UTC
-// seconds; the slider DOM is reformatted on mode change via syncSliders().
+// 時間窓UIには2モードある:
+//   - 'range'  : slider1=tMinからの開始オフセット、slider2=終了オフセット
+//   - 'window' : slider1=tMinからの開始オフセット、slider2=窓の幅
+// 内部的にはstate.ui.tStartUnix/tEndUnixを常に絶対UTC秒で保持し、モード切替時にsyncSliders()でスライダDOM側を整形し直す。
 
 export function setupControls({ state, render, selectDay, formatBkk, onUiChanged }) {
   const $ = (id) => document.getElementById(id);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  // ----- DOM ↔ state sync at init -----
-  // Browsers restore form-control values across reload (bfcache, F5), so a
-  // checkbox the user toggled last session can show "checked" while the
-  // freshly-initialized state.ui has it false — display and UI disagree.
-  // Authoritatively push state defaults into the DOM here.
+  // ----- 初期化時のDOM↔state同期 -----
+  // ブラウザはリロード(bfcacheやF5)を跨いでフォーム要素の値を復元するので、前セッションでユーザがチェックを入れたチェックボックスが"checked"のまま見える一方、初期化直後のstate.ui側はfalseのまま、ということが起きる。
+  // ここではstate側のデフォルトを正としてDOMに上書きする。
   $('lyr-points').checked      = state.ui.layers.points;
   $('lyr-heatmap').checked     = state.ui.layers.heatmap;
   $('lyr-heatmap-avg').checked = state.ui.layers.heatmapAvgSpeed;
@@ -28,7 +25,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   $('point-size').value     = String(state.ui.pointSize);
   $('color-by').value       = state.ui.colorBy;
 
-  // ----- Day selector -----
+  // ----- 日付セレクタ -----
   const daySelect = $('day-select');
   const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   for (const d of state.meta.days) {
@@ -46,7 +43,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     if (Number.isFinite(v)) selectDay(v);
   });
 
-  // ----- Time sliders -----
+  // ----- 時間スライダ -----
   const tStart = $('time-start');
   const tEnd   = $('time-end');
   const tLabel = $('time-label');
@@ -68,7 +65,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
       `${formatBkk(state.ui.tStartUnix).slice(11)} – ${formatBkk(state.ui.tEndUnix).slice(11)}  (${fmtDur(w)})`;
   };
 
-  // Push current state.ui.tStartUnix/tEndUnix onto the slider DOM.
+  // 現在のstate.ui.tStartUnix/tEndUnixをスライダDOMに反映する。
   const syncSliders = () => {
     if (!state.day) return;
     const s = state.ui.tStartUnix - state.day.tMin;
@@ -86,7 +83,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     syncSliders();
   };
 
-  // Read sliders → write absolute times into state.
+  // スライダ値を読んで絶対時刻としてstateに書き戻す。
   const onSlider = (ev) => {
     if (!state.day) return;
     const span = state.day.tMax - state.day.tMin;
@@ -94,7 +91,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     if (timeMode === 'range') {
       let s = v1, e = v2;
       if (s > e) {
-        // crossed sliders: snap the non-moving one to the moving one
+        // スライダが交差したら、動いていない側を動かしている側に揃える
         if (ev && ev.target === tStart) { e = s; tEnd.value = String(e); }
         else                            { s = e; tStart.value = String(s); }
       }
@@ -114,7 +111,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     const span = state.day.tMax - state.day.tMin;
     tStart.min = 0; tStart.max = span;
     tEnd.min = 0;   tEnd.max = span;
-    // Reset to "show the whole day" in whatever mode the user picked.
+    // 現在のモードのまま「丸一日を表示」状態にリセットする。
     state.ui.tStartUnix = state.day.tMin;
     state.ui.tEndUnix   = state.day.tMax;
     daySelect.value = String(state.ui.dateYmd);
@@ -131,17 +128,17 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     r.addEventListener('change', () => setMode(r.value));
   });
 
-  // Width preset buttons → switch to window mode + set width
+  // 幅プリセットボタン: windowモードに切替えて幅を設定する
   $$('#width-presets button[data-w]').forEach((btn) => {
     btn.addEventListener('click', () => {
       if (!state.day) return;
       const w = +btn.dataset.w;
       const span = state.day.tMax - state.day.tMin;
-      const start = state.ui.tStartUnix; // keep current start
+      const start = state.ui.tStartUnix; // 現在の開始時刻は維持
       setMode('window');
       state.ui.tStartUnix = start;
       state.ui.tEndUnix   = Math.min(state.day.tMax, start + w);
-      // tEnd slider holds the *width* in window mode; clamp to slider max
+      // windowモードではtEndスライダは「幅」を持つ。スライダ最大値でクランプする。
       tStart.value = String(start - state.day.tMin);
       tEnd.value   = String(Math.min(span, w));
       updateTimeLabel();
@@ -149,7 +146,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     });
   });
 
-  // ----- Play -----
+  // ----- 再生 -----
   const playBtn = $('play');
   const playSpeedSel = $('play-speed');
   let rafId = null, lastFrameMs = 0;
@@ -168,7 +165,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     const speedup = +playSpeedSel.value;
     const w = state.playWindow;
     let sUnix = state.ui.tStartUnix + dt * speedup;
-    if (sUnix + w > state.day.tMax) sUnix = state.day.tMin; // wrap
+    if (sUnix + w > state.day.tMax) sUnix = state.day.tMin; // 端まで来たら巻き戻す
     state.ui.tStartUnix = sUnix;
     state.ui.tEndUnix   = sUnix + w;
     syncSliders();
@@ -181,8 +178,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     if (!state.day) return;
     if (state.playing) { stopPlay(); return; }
 
-    // Snapshot the play window. If the current selection covers (almost) the
-    // whole day, fall back to a 1-hour window so the animation is visible.
+    // 再生用の窓幅を確定させる。現在の選択が丸一日(に近い)範囲を覆っている場合はアニメーションが見えないので1時間の窓にフォールバックする。
     const span = state.day.tMax - state.day.tMin;
     let w = state.ui.tEndUnix - state.ui.tStartUnix;
     if (!Number.isFinite(w) || w <= 0 || w >= span * 0.95) {
@@ -201,7 +197,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     rafId = requestAnimationFrame(tick);
   });
 
-  // ----- Layer toggles -----
+  // ----- レイヤ切替 -----
   const bind = (id, fn) => $(id).addEventListener('change', () => { fn(); render(); });
   bind('lyr-points',      () => state.ui.layers.points          = $('lyr-points').checked);
   bind('lyr-heatmap',     () => state.ui.layers.heatmap         = $('lyr-heatmap').checked);
@@ -210,7 +206,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   bind('lyr-heading-hex', () => state.ui.layers.headingHex      = $('lyr-heading-hex').checked);
   bind('lyr-trips',       () => state.ui.layers.trips           = $('lyr-trips').checked);
 
-  // ----- Color by -----
+  // ----- 色分けモード -----
   $('color-by').addEventListener('change', () => {
     state.ui.colorBy = $('color-by').value;
     onUiChanged('colorBy');
@@ -221,7 +217,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
     render();
   });
 
-  // ----- Filters -----
+  // ----- フィルタ -----
   const filterChange = () => {
     state.ui.onlyGps    = $('f-gps').checked;
     state.ui.onlyMoving = $('f-moving').checked;
@@ -230,7 +226,7 @@ export function setupControls({ state, render, selectDay, formatBkk, onUiChanged
   $('f-gps').addEventListener('change', filterChange);
   $('f-moving').addEventListener('change', filterChange);
 
-  // ----- Speed color-scale max (does NOT filter; only rescales the speed gradient) -----
+  // ----- 速度色スケールの上限(フィルタではなく、速度グラデーションの再スケールのみ) -----
   $('f-speed-max').addEventListener('input', () => {
     state.ui.speedMax = +$('f-speed-max').value;
     $('f-speed-max-v').textContent = String(state.ui.speedMax);

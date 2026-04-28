@@ -12,7 +12,7 @@ export function buildLayers(state) {
   const { count, positionsView, tMin } = day;
 
   // filterValues = Float32Array(count*2): [time_offset_sec, passFlag(0|1)]
-  // filterRange = [[tStart, tEnd], [0.5, 1.5]]
+  // filterRange = [[tStart, tEnd], [0.5, 1.5]] でGPU側がインタリーブ判定する。
   const tStart = ui.tStartUnix - tMin;
   const tEnd   = ui.tEndUnix   - tMin;
 
@@ -60,9 +60,7 @@ export function buildLayers(state) {
       }));
     }
     if (ui.layers.heatmapAvgSpeed && visiblePositions.length >= 2) {
-      // Per-cell color = mean speed (km/h) of contributing points.
-      // colorDomain is fixed to [0, speedMax] so the legend stays meaningful
-      // regardless of the current max in view.
+      // セル色=寄与点の平均速度(km/h)。colorDomainは[0, speedMax]に固定するので、現在の表示範囲にどんな最大速度が出ても凡例の意味が保たれる。
       layers.push(new HeatmapLayer({
         id: 'heatmap-avg-speed',
         data: {
@@ -81,13 +79,13 @@ export function buildLayers(state) {
       }));
     }
     if (ui.layers.hexagon) {
-      // HexagonLayer aggregates on JS side; keep the input array bounded.
+      // HexagonLayerはJS側で集計するので、入力配列のサイズに上限を設けておく。
       const sampled = subsamplePositions(visiblePositions, 200000);
       layers.push(new HexagonLayer({
         id: 'hex',
         data: sampled,
         getPosition: (d) => d,
-        radius: 750,
+        radius: 1500,
         extruded: false,
         coverage: 0.95,
         colorRange: HEX_COLORS,
@@ -95,9 +93,7 @@ export function buildLayers(state) {
       }));
     }
     if (ui.layers.headingHex && visibleHeadings && visiblePositions.length >= 2) {
-      // Per-cell color = circular mean of headings (degrees, 0=N CW). Plain
-      // arithmetic mean would be wrong at the wrap-around (mean(350°,10°)
-      // should be 0°, not 180°), so we average unit vectors and atan2.
+      // セル色=方位の循環平均(度、0=北で時計回り)。単純な算術平均だとラップアラウンドで誤る(mean(350°,10°)は0°になるべきで180°ではない)ので、単位ベクトルを平均してatan2する。
       const sampled = subsamplePositionsWithHeading(visiblePositions, visibleHeadings, 200000);
       layers.push(new HexagonLayer({
         id: 'hex-heading',
@@ -114,7 +110,7 @@ export function buildLayers(state) {
           if (deg < 0) deg += 360;
           return deg;
         },
-        radius: 750,
+        radius: 1500,
         extruded: false,
         coverage: 0.95,
         colorDomain: [0, 360],
@@ -193,11 +189,8 @@ export function buildLayers(state) {
   return layers;
 }
 
-// Pack [time_offset, passFlag] for every record. Allocated once; the caller
-// provides reusable backing storage when possible.
-// `speedMax` is intentionally NOT a filter — it only drives the color scale
-// upper bound (see buildColors). Records faster than the slider value still
-// render, just clamped to the top color.
+// 全レコードに対する[time_offset, passFlag]をパックする。可能なら呼び出し側が再利用可能なバッファを渡してくる前提で、その場合は確保し直さない。
+// `speedMax`は意図的にフィルタにしていない。色スケールの上限を決めるだけ(buildColors参照)で、スライダ値より速いレコードも描画はされ、上端色にクランプされる。
 export function buildFilterValues(day, opts, out) {
   const { count, u8View, times } = day;
   const onlyGps = !!opts.onlyGps;
@@ -216,10 +209,8 @@ export function buildFilterValues(day, opts, out) {
   return arr;
 }
 
-// Extract flat typed arrays of [lon,lat,...], [speed,...] and [heading,...]
-// for records that satisfy the current time window + filter values. Speed and
-// heading are kept alongside so per-cell aggregation layers can use them as
-// `getWeight` / for circular mean without a second pass.
+// 現在の時間窓+フィルタ値を満たすレコードについて、[lon,lat,...]・[speed,...]・[heading,...]のフラットな型付き配列を抽出する。
+// 速度と方位を一緒に持っておくのは、セル単位の集計レイヤが`getWeight`や循環平均に2度目のパス無しで使えるようにするため。
 function filterPositionsAndSpeeds(day, filterValues, tStart, tEnd) {
   const { count, positionsView, u8View } = day;
   let n = 0;
@@ -239,15 +230,13 @@ function filterPositionsAndSpeeds(day, filterValues, tStart, tEnd) {
     positions[k++] = positionsView[i * 5];
     positions[k++] = positionsView[i * 5 + 1];
     speeds[ks++]   = u8View[i * RECORD_SIZE + 12];
-    headings[kh++] = u8View[i * RECORD_SIZE + 13] * 2; // stored as deg/2, restore deg
+    headings[kh++] = u8View[i * RECORD_SIZE + 13] * 2; // 格納形式はdeg/2なので2倍してdegに戻す
   }
   return { positions, speeds, headings };
 }
 
-// Take every Nth record so the array tops out at ~target points.
-// HexagonLayer accepts an array of [lon, lat] pairs. Two off-screen anchors
-// pin the auto-derived grid origin so cells don't drift across renders (see
-// subsamplePositionsWithHeading for the motivation).
+// 配列長がおおよそtarget点で収まるよう、N点ごとに間引く。HexagonLayerは[lon, lat]ペアの配列を受け取る。
+// 画面外の2点をアンカーとして追加し、自動推定されるグリッド原点を固定して、描画ごとにセルがずれないようにする(動機はsubsamplePositionsWithHeading側のコメント参照)。
 const POS_HEX_ANCHORS = [
   [88.0,  -8.0],
   [118.0, 32.0],
@@ -265,12 +254,9 @@ function subsamplePositions(positionsFlat, target) {
   return out;
 }
 
-// Same idea but keeps the heading as the third element so the heading-hex
-// layer's getColorValue can compute a per-cell circular mean. Two corner
-// anchors are appended so the HexagonLayer's auto-derived grid origin
-// stays put even as the time-window filter changes the input extent —
-// otherwise every cell visibly shifts when scrubbing the slider. Anchors
-// are placed well outside Thailand so the two stray cells stay off-screen.
+// 同じ仕組みだが、3要素目に方位を入れておき、heading-hexレイヤのgetColorValueがセル単位の循環平均を計算できるようにする。
+// 2つの隅アンカーを末尾に足すのは、時間窓フィルタで入力範囲が変わってもHexagonLayerが自動推定するグリッド原点を固定するため。これがないとスライダ操作のたびに全セルが目に見えてずれる。
+// アンカーはタイから十分外に置いて、2つの余分なセルが画面外に留まるようにしている。
 const HEADING_HEX_ANCHORS = [
   [88.0,  -8.0, 0],
   [118.0, 32.0, 0],
@@ -288,17 +274,21 @@ function subsamplePositionsWithHeading(positionsFlat, headings, target) {
   return out;
 }
 
+// Inferno-inspired sequential palette for the count heatmap. Dark end is
+// transparent so it dissolves into the dark basemap; bright end is pale
+// yellow for high counts. The hex count layer reuses the same palette
+// (alpha-stripped) below so density visualizations read consistently.
 const HEATMAP_COLORS = [
-  [40, 50, 110, 0],
-  [40, 110, 200, 120],
-  [50, 200, 220, 200],
-  [255, 220, 100, 230],
-  [255, 100, 50, 250],
+  [ 20,  11,  52,   0],
+  [ 80,  18, 123, 140],
+  [182,  54, 121, 200],
+  [241,  96,  93, 225],
+  [252, 174,  33, 240],
+  [252, 255, 164, 250],
 ];
 
-// Avg-speed gradient: red (slow / congested) → green → blue (fast / free flow).
-// Mirrors the per-point speed palette in binary.js#buildColors so the two
-// visualizations read consistently.
+// 平均速度のグラデーション: 赤(低速・混雑)→緑→青(高速・自由流)。
+// binary.js#buildColorsの点単位パレットと一致させ、2つの可視化が整合的に読めるようにしている。
 const AVG_SPEED_COLORS = [
   [200,  40,  30,   0],
   [230,  60,  40, 200],
@@ -307,29 +297,29 @@ const AVG_SPEED_COLORS = [
   [ 50, 130, 240, 240],
 ];
 
+// Same Inferno palette as HEATMAP_COLORS minus alpha (HexagonLayer drives
+// transparency through the layer's `opacity` prop, not per-stop alpha).
 const HEX_COLORS = [
-  [50, 90, 200],
-  [80, 160, 220],
-  [120, 220, 200],
-  [200, 240, 120],
-  [255, 200, 80],
-  [255, 100, 60],
+  [ 20,  11,  52],
+  [ 80,  18, 123],
+  [182,  54, 121],
+  [241,  96,  93],
+  [252, 174,  33],
+  [252, 255, 164],
 ];
 
-// Cyclic hue wheel for the heading-hex layer. 12 stops × 30° each. First and
-// last colors are intentionally close so the wrap-around at 360°/0° doesn't
-// flash a discordant color.
+// heading-hexレイヤ用の循環色相環。12段階×30°ずつ。最初と最後の色は意図的に近づけてあり、360°/0°のラップアラウンドで違和感のある色変化が出ないようにしている。
 const HEADING_HEX_COLORS = [
-  [255,  64,  64],   //   0° N    red
-  [255, 144,  64],   //  30°      orange
-  [255, 224,  64],   //  60°      yellow
-  [192, 240,  64],   //  90° E    yellow-green
-  [ 64, 240,  64],   // 120°      green
-  [ 64, 240, 144],   // 150°      cyan-green
-  [ 64, 224, 240],   // 180° S    cyan
-  [ 64, 144, 240],   // 210°      azure
-  [ 64,  64, 240],   // 240°      blue
-  [144,  64, 240],   // 270° W    violet
-  [240,  64, 240],   // 300°      magenta
-  [240,  64, 144],   // 330°      pink
+  [255,  64,  64],   //   0° N    赤
+  [255, 144,  64],   //  30°      橙
+  [255, 224,  64],   //  60°      黄
+  [192, 240,  64],   //  90° E    黄緑
+  [ 64, 240,  64],   // 120°      緑
+  [ 64, 240, 144],   // 150°      シアン緑
+  [ 64, 224, 240],   // 180° S    シアン
+  [ 64, 144, 240],   // 210°      空色
+  [ 64,  64, 240],   // 240°      青
+  [144,  64, 240],   // 270° W    紫
+  [240,  64, 240],   // 300°      マゼンタ
+  [240,  64, 144],   // 330°      ピンク
 ];

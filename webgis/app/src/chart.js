@@ -1,15 +1,14 @@
-// Minimal canvas time-series chart. No deps.
+// 依存ゼロのcanvas製ミニ時系列チャート。
 //
 // drawTimeSeries(canvas, values, opts):
-//   binSec     — seconds per bin (drives x-axis hour ticks)
-//   tMin       — unix seconds at bin 0 (only used if highlight is set)
-//   yMin/yMax  — explicit y-range, or null for auto
-//   color      — '#rrggbb' stroke (and translucent fill if opts.fill)
-//   fill       — fill area below the line
-//   highlight  — { tStart, tEnd } unix seconds — translucent vertical band
+//   binSec     — 1ビンあたりの秒数(x軸の時刻目盛りを駆動)
+//   tMin       — ビン0に対応するunix秒(highlight指定時のみ使用)
+//   yMin/yMax  — y軸範囲の明示指定。nullなら自動。
+//   color      — '#rrggbb'のストローク色(opts.fill時は半透明の塗りも兼ねる)
+//   fill       — 折れ線の下を塗るかどうか
+//   highlight  — { tStart, tEnd } のunix秒。半透明の縦帯を描く。
 //
-// NaN entries break the line into segments (used for avg speed where empty
-// bins should leave a gap rather than dive to 0).
+// 値にNaNが入っていると折れ線が途切れる(平均速度などで空ビンを0に落とさず空白として扱うため)。
 
 export function drawTimeSeries(canvas, values, opts = {}) {
   const ctx = canvas.getContext('2d');
@@ -132,15 +131,12 @@ function clamp01(x) {
   return x < 0 ? 0 : x > 1 ? 1 : x;
 }
 
-// Scatter plot for MFD-style diagrams (xs, ys typed arrays of same length).
-// NaN entries are skipped. opts:
-//   xLabel, yLabel      — axis captions
-//   xMin/xMax/yMin/yMax — explicit ranges (else auto, padded)
-//   colorFn(i)          — per-point fill color string (e.g. 'hsl(...)')
-//                         used to encode time-of-day along the day
-//   pointSize           — default 2.5 (CSS px)
-//   connect             — true to draw a thin polyline in array order
-//                         (useful to read MFD hysteresis)
+// MFD型の図のための散布図(xs, ysは同じ長さの型付き配列)。NaNは飛ばす。opts:
+//   xLabel, yLabel      — 軸ラベル
+//   xMin/xMax/yMin/yMax — 範囲の明示指定(無ければ自動。パディングあり)
+//   colorFn(i)          — 各点の塗り色文字列(例 'hsl(...)')。一日の中の時刻を色に乗せるのに使う。
+//   pointSize           — デフォルト2.5(CSSピクセル)
+//   connect             — trueにすると配列順で細い折れ線を描く(MFDのヒステリシスを読み取るのに便利)
 export function drawScatter(canvas, xs, ys, opts = {}) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -164,7 +160,7 @@ export function drawScatter(canvas, xs, ys, opts = {}) {
   const n = Math.min(xs.length, ys.length);
   if (n === 0 || w <= 0 || h <= 0) return;
 
-  // auto-range
+  // 自動レンジ
   let xmin = opts.xMin, xmax = opts.xMax, ymin = opts.yMin, ymax = opts.yMax;
   let lox = Infinity, hix = -Infinity, loy = Infinity, hiy = -Infinity;
   for (let i = 0; i < n; i++) {
@@ -182,7 +178,7 @@ export function drawScatter(canvas, xs, ys, opts = {}) {
   const xToPx = (v) => padL + ((v - xmin) / (xmax - xmin)) * w;
   const yToPx = (v) => padT + h - ((v - ymin) / (ymax - ymin)) * h;
 
-  // grid + tick labels
+  // グリッド+目盛りラベル
   ctx.font = '9px ui-monospace, "SFMono-Regular", Menlo, monospace';
   ctx.fillStyle = '#8590a8';
   ctx.strokeStyle = 'rgba(133, 144, 168, 0.18)';
@@ -205,7 +201,7 @@ export function drawScatter(canvas, xs, ys, opts = {}) {
     ctx.fillText(formatTick(v), x, padT + h + 2);
   }
 
-  // axis labels
+  // 軸ラベル
   ctx.fillStyle = '#8590a8';
   if (opts.xLabel) {
     ctx.textAlign = 'center';
@@ -222,7 +218,7 @@ export function drawScatter(canvas, xs, ys, opts = {}) {
     ctx.restore();
   }
 
-  // optional connecting polyline
+  // 連結用の折れ線(オプション)
   if (opts.connect) {
     ctx.lineWidth = 0.6;
     ctx.strokeStyle = 'rgba(216, 222, 240, 0.25)';
@@ -238,7 +234,7 @@ export function drawScatter(canvas, xs, ys, opts = {}) {
     ctx.stroke();
   }
 
-  // points
+  // 点
   const r = opts.pointSize || 2.5;
   const colorFn = opts.colorFn;
   for (let i = 0; i < n; i++) {

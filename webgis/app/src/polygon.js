@@ -1,13 +1,11 @@
-// ROI polygon drawing + per-bin aggregation.
+// ROIポリゴンの描画+ビン単位の集計。
 //
-// Aggregation runs on the same strided typed-array views the renderer uses,
-// so there is no per-record JS object churn. ~1.86M points × 5-vertex polygon
-// is sub-100ms in practice (bbox prefilter dominates).
+// 集計はレンダラと同じストライド付き型付き配列ビューの上で動かすので、レコードごとのJSオブジェクト生成は発生しない。
+// 約186万点×5頂点ポリゴンで実測100ms未満(bbox事前フィルタが支配的)。
 
 const RECORD_SIZE = 20;
 
-// Standard ray-casting; ring is a JS array of [lon, lat] pairs (open — first
-// vertex not duplicated at the end).
+// 標準的なray-casting法。ringは[lon, lat]ペアのJS配列(開いた表現で、最初の頂点は末尾に重複させない)。
 export function pointInPolygon(lon, lat, ring) {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -33,12 +31,10 @@ function ringBbox(ring) {
   return [minLon, minLat, maxLon, maxLat];
 }
 
-// Per-bin count + mean speed for records inside `ring` that pass `filterValues`
-// (the same passFlag used by the GPU filter — gps/moving toggles).
+// `ring`の内側にあり、かつ`filterValues`を通過する(GPUフィルタと同じpassFlag。gps/movingトグル相当)レコードについて、ビン単位の件数と平均速度を返す。
 //
-// The full day span is binned regardless of the time-window slider; the slider
-// is rendered as a highlight band on the chart instead. Returns:
-//   { binSec, nBins, count: Uint32Array, avgSpeed: Float32Array (NaN where count=0) }
+// 時間窓スライダの値に関わらず、丸一日分の区間を全部ビン分割する。スライダはチャート上のハイライト帯として描かれる。
+// 戻り値: { binSec, nBins, count: Uint32Array, avgSpeed: Float32Array (件数0のビンはNaN) }
 export function aggregateInPolygon(day, ring, filterValues, binSec = 60) {
   const { count, positionsView, u8View, times, tMin, tMax } = day;
   const span = tMax - tMin;
