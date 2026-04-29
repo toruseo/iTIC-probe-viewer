@@ -30,7 +30,16 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
+      # データ本体はGitHub Releases (tag: data) から配信するので、Pagesアーティファクトには含めない。
+      # public/data/README.md は残しておく(リポジトリで開いたときの説明用)。
+      - name: Strip bundled data from public/
+        run: |
+          rm -f public/data/*.bin public/data/meta.json public/data/vehicles.json
+
       - name: Build
+        env:
+          VITE_DATA_BASE: https://github.com/${{ github.repository }}/releases/download/data/
+          VITE_DATA_VERSION: ${{ github.sha }}
         run: npm run build
 
       - name: Upload artifact

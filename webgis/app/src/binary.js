@@ -4,19 +4,26 @@ const HEADER_SIZE = 64;
 const RECORD_SIZE = 20;
 const MAGIC = 0x424f5250; // 'PROB'をu32 LEで表したもの
 
+// データ取得元のベースURL。空ならVite dev serverやローカルプレビューのために `data/` 相対へフォールバックする。
+// GitHub Pagesビルドではpages.ymlがGitHub ReleasesのアセットURL(末尾スラッシュ付き)を注入する。
+// VITE_DATA_VERSIONはCDNキャッシュバスティング用のクエリ文字列(例: コミットSHA)。
+const DATA_BASE = (import.meta.env.VITE_DATA_BASE || 'data/');
+const DATA_VERSION = import.meta.env.VITE_DATA_VERSION || '';
+const VQ = DATA_VERSION ? `?v=${encodeURIComponent(DATA_VERSION)}` : '';
+
 export async function fetchMeta() {
   const [meta, vehicles] = await Promise.all([
-    fetch('data/meta.json').then((r) => {
+    fetch(`${DATA_BASE}meta.json${VQ}`).then((r) => {
       if (!r.ok) throw new Error('meta.json not found — run the preprocessor first.');
       return r.json();
     }),
-    fetch('data/vehicles.json').then((r) => r.ok ? r.json() : []),
+    fetch(`${DATA_BASE}vehicles.json${VQ}`).then((r) => r.ok ? r.json() : []),
   ]);
   return { meta, vehicles };
 }
 
 export async function loadDay(date, onProgress) {
-  const url = `data/${date}.bin`;
+  const url = `${DATA_BASE}${date}.bin${VQ}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`failed to fetch ${url}: ${resp.status}`);
 

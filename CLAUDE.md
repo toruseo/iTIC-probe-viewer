@@ -59,13 +59,18 @@ No test suite. Smoke checks live under `webgis/tmp/` — write named `*.mjs`/`*.
 - **`THAILAND_BBOX` in `main.js` overrides per-day bbox for initial map fit.** Bin-header bbox can be polluted by stale records leaking near `(0,0)`; the country-fixed extent keeps the first frame sane. Stats panel still shows the actual data bbox for diagnostics.
 - **HeatmapLayer / HexagonLayer silently fail on software-rendered Chromium** (`Binding weightsTexture not set`) — affects headless smoke tests under `chrome-headless-shell`. Use real Chromium for those layers. Points layer is unaffected. Don't try downgrading deck.gl/luma.gl to "fix" — luma.gl 9.1↔9.3 export changes mean a clean pin needs `overrides` on every `@luma.gl/*`.
 
-## Deploy (GitHub Pages)
+## Deploy (GitHub Pages + Releases split)
 
-`.github/workflows/pages.yml` runs `npm install && npm run build` from `webgis/app/` and uploads `dist/` on push to `main`. `vite.config.js` sets `base: './'` so it works at any subpath.
+Two workflows on push to `main`:
+- `.github/workflows/pages.yml` — builds `webgis/app/` and deploys `dist/` to Pages. **Strips `public/data/{*.bin,meta.json,vehicles.json}` before `npm run build`** so the artifact is just the JS/HTML/CSS shell (~few hundred KB).
+- `.github/workflows/release-data.yml` — on changes under `webgis/app/public/data/**`, mirrors all `.bin` + `meta.json` + `vehicles.json` into the fixed-tag release `data` (creates on first run, `gh release upload --clobber` thereafter).
 
+**Why split.** Pages bandwidth is metered (100 GB/month soft cap). Release asset traffic is not metered for normal use, so per-user data load (~40 MB/day × N days) is charged against Releases instead.
+
+- **`VITE_DATA_BASE` / `VITE_DATA_VERSION`** drive `binary.js`. Empty (= local dev) → relative `data/`. `pages.yml` injects `https://github.com/${{ github.repository }}/releases/download/data/` and `${{ github.sha }}` for cache-busting (`?v=<sha>`). Source data is still committed under `webgis/app/public/data/` so a fresh `npm run dev` works with no network round-trip to GitHub.
+- **Race window.** `pages.yml` and `release-data.yml` run in parallel. After a data change, there is a brief window (~minutes) where the Pages build references new SHAs but `objects.githubusercontent.com` may still serve the old asset. Acceptable; if you ever need atomicity, chain via `workflow_run`.
 - **Use `npm install`, not `npm ci`** — lockfile isn't kept in lockstep with `package.json`. Switching back requires regenerating `package-lock.json` first.
-- **Bundled data**: `webgis/app/public/data/{YYYYMMDD}.bin` + `meta.json` + `vehicles.json` (~36–44 MB/day). The loader (`binary.js#loadDay`) only fetches `data/{date}.bin` relative to the deployed site; no off-Pages hosting path exists in code.
-- **Hard caps** ([docs](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits), [upload-pages-artifact](https://github.com/actions/upload-pages-artifact)): site **1 GB**, artifact **1 GB official / 10 GB unofficial**, per-file push **100 MiB**, bandwidth 100 GB/mo soft, deploy timeout 10 min. **Git LFS is not resolved by Pages.** With ~40 MB/day, ~25 days is the practical bundling budget.
+- **Hard caps still relevant** ([Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits), [Releases](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases)): Pages site/artifact **1 GB**, per-file push **100 MiB**, deploy timeout 10 min. **Release asset 2 GB per file**, no published per-repo cap. **Git LFS is not resolved by Pages.**
 - Source archives `PROBE_DATA_iTIC/PROBE-*.tar.bz2` are gitignored.
 
 ## Windows quirks
