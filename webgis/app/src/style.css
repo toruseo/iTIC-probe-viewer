@@ -168,10 +168,9 @@ body.poly-drawing #map { cursor: crosshair; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(11, 13, 18, 0.88);
-  backdrop-filter: blur(6px);
   padding: 24px;
   text-align: center;
+  pointer-events: none;
 }
 #unavailable-overlay .unavailable-message {
   max-width: 720px;
@@ -183,4 +182,6 @@ body.poly-drawing #map { cursor: crosshair; }
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 24px 28px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
