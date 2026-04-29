@@ -38,7 +38,7 @@ From the left panel:
 
 Click any point on the map to display that vehicle's full trajectory for the day as a yellow line. Under **Polygon stats**, click `Draw polygon` and then click on the map to drop vertices; press `Finish` (≥3 vertices) to commit, and the time-series and MFD charts will be drawn at the bottom of the left panel. MFD point colors encode time of day (0h → 24h).
 
-## Running locally
+## Local version
 
 If you have iTIC-format CSVs (`VehicleID,gpsvalid,lat,lon,timestamp,speed,heading,for_hire,engine_acc`), you can build and visualize your own data locally. The data can be downloaded freely from the [official iTIC site](https://iticfoundation.org/en/open-data-sharing/).
 
@@ -56,14 +56,14 @@ cd webgis/preprocess
 DATES=20250101,20250115,20250201 node preprocess.mjs
 ```
 
-## Acknowledgments
-
-We thank [iTIC](https://www.iticfoundation.org/) for making this open data available.
-
-This is also part of the JST/JICA [SATREPS](https://www.jst.go.jp/global/) [3DTraffic](https://www.3dtraffic.t.u-tokyo.ac.jp/) project; we gratefully acknowledge their research funding.
-
-## License
+## Acknowledgments and credits
 
 - Developed by [Toru Seo](https://toruseo.jp/), [Institute of Science Tokyo](https://seo.cv.ens.titech.ac.jp/en/index.html)
 - Source code: MIT
 - Data: © iTIC Foundation, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — see `PROBE_DATA_iTIC/README_ITIC.TXT`
+- We thank [iTIC](https://www.iticfoundation.org/) for making this open data available.
+- This is part of the JST/JICA [SATREPS](https://www.jst.go.jp/global/) [3DTraffic](https://www.3dtraffic.t.u-tokyo.ac.jp/) project; we gratefully acknowledge their research funding.
+
+
+[<img width="200" alt="SATREPS logo" src="https://www.jst.go.jp/global/images/top/satreps.svg" />](https://www.jst.go.jp/global/english/index.html) &ensp; [<img width="200" alt="3DTraffic logo" src="https://www.3dtraffic.t.u-tokyo.ac.jp/wp-content/uploads/2025/01/logo_700x200.png" />](https://www.3dtraffic.t.u-tokyo.ac.jp/) &ensp; [<img width="200" alt="Science Tokyo logo" src="https://github.com/user-attachments/assets/38041fbe-9c29-4f3f-93cb-ad97e85530b5" />](https://seo.cv.ens.titech.ac.jp/en/index.html)
+
