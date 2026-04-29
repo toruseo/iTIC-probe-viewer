@@ -30,7 +30,7 @@ jobs:
       - name: Install
         run: npm install --no-audit --no-fund
 
-      # データ本体はGitHub Releases (tag: data) から配信するので、Pagesアーティファクトには含めない。
+      # データ本体はCloudflare R2 (公開r2.devエンドポイント) から配信するので、Pagesアーティファクトには含めない。
       # public/data/README.md は残しておく(リポジトリで開いたときの説明用)。
       - name: Strip bundled data from public/
         run: |
@@ -38,7 +38,9 @@ jobs:
 
       - name: Build
         env:
-          VITE_DATA_BASE: https://github.com/${{ github.repository }}/releases/download/data/
+          # 末尾スラッシュ必須(binary.jsで `${DATA_BASE}<file>` の形で連結する)。
+          VITE_DATA_BASE: https://pub-c70c6e1d178e4465853fab101cdc0321.r2.dev/
+          # R2はオブジェクト同名で更新するため、コミットSHAをクエリに付けてブラウザ/Cloudflare CDNキャッシュを無効化する。
           VITE_DATA_VERSION: ${{ github.sha }}
         run: npm run build
 
