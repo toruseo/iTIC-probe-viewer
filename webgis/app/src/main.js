@@ -59,8 +59,8 @@ const map = new maplibregl.Map({
   attributionControl: {
     compact: true,
     customAttribution: [
-      'Data © <a href="https://www.iticfoundation.org/" target="_blank" rel="noopener">iTIC</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>',
-      'By <a href="https://toruseo.jp/" target="_blank" rel="noopener">Toru Seo</a>. Source: <a href="https://github.com/toruseo/iTIC-probe-viewer" target="_blank" rel="noopener">GitHub</a>',
+      'Data © <a href="https://www.iticfoundation.org/" target="_blank" rel="noopener">iTIC</a>',
+      'Developed by <a href="https://toruseo.jp/" target="_blank" rel="noopener">Toru Seo</a>, <a href="https://www.3dtraffic.t.u-tokyo.ac.jp/" target="_blank" rel="noopener">3DTraffic</a>, JICA/JST | Source: <a href="https://github.com/toruseo/iTIC-probe-viewer" target="_blank" rel="noopener">GitHub</a>',
     ],
   },
 });
