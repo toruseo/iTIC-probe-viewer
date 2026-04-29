@@ -49,13 +49,16 @@ jobs:
           set -euo pipefail
           mapfile -t FILES <<< "${{ steps.files.outputs.list }}"
           NOTES="Auto-uploaded probe data bundle. Source commit: ${{ github.sha }}"
+          # --latest=false: コードのリリースではなくデータバンドルなので、
+          # リポジトリの "Latest release" バッジを乗っ取らないようにする。
           if gh release view data >/dev/null 2>&1; then
             echo "Release 'data' exists — uploading with --clobber."
             gh release upload data "${FILES[@]}" --clobber
-            gh release edit data --notes "$NOTES"
+            gh release edit data --notes "$NOTES" --latest=false
           else
             echo "Release 'data' missing — creating."
             gh release create data "${FILES[@]}" \
               --title "Probe data bundle" \
-              --notes "$NOTES"
+              --notes "$NOTES" \
+              --latest=false
           fi
